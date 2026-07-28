@@ -1,0 +1,144 @@
+{
+  "menu": [
+    {
+      "name": "Dashboard",
+      "icon": "menu-icon tf-icons ti ti-smart-home",
+      "slug": "admin.dashboard",
+      "url": "/admin",
+      "access": "admin"
+    },
+    {
+      "name": "Dashboard",
+      "icon": "menu-icon tf-icons ti ti-smart-home",
+      "slug": "user.dashboard",
+      "url": "/dashboard",
+      "access": "web"
+    },
+    {
+      "url": "/admin/package",
+      "name": "Packages",
+      "icon": "menu-icon tf-icons ti ti-layout-sidebar",
+      "slug": "admin.package",
+      "access": "admin"
+    },
+    {
+      "url": "/admin/users",
+      "name": "Clients",
+      "icon": "menu-icon tf-icons ti ti-users",
+      "slug": "admin.users",
+      "access": "admin"
+    },
+    {
+      "url": "/check/process-payment",
+      "name": "Receive payment ",
+      "icon": "menu-icon tf-icons ti ti-arrow-right",
+      "slug": "check.process_payment",
+      "access": "web"
+    },
+    {
+      "url": "/check/send-payment",
+      "name": "Send Payment",
+      "icon": "menu-icon tf-icons ti ti-arrow-left",
+      "slug": "check.send_payment",
+      "access": "web"
+    },
+    {
+      "url": "/user/client",
+      "name": "Manage Payees (Pay To)",
+      "icon": "menu-icon tf-icons ti ti-users",
+      "slug": "user.payee",
+      "access": "web"
+    },
+    {
+      "url": "/user/vendor",
+      "name": "Manage Payors (Pay From)",
+      "icon": "menu-icon tf-icons ti ti-id",
+      "slug": "user.payors",
+      "access": "web"
+    },
+    {
+      "url": "/check-history",
+      "name": "History",
+      "icon": "menu-icon tf-icons ti ti-map",
+      "slug": "check_history",
+      "access": "web"
+    },
+    {
+      "url": "billing-and-plan",
+      "name": "Billing & Plan",
+      "icon": "menu-icon tf-icons ti ti-file-dollar",
+      "slug": "billing_and_plan",
+      "access": "web"
+    },
+    {
+      "url": "/setting",
+      "name": "Settings",
+      "icon": "menu-icon tf-icons ti ti-settings",
+      "slug": "get_web_forms",
+      "access": "web"
+    },
+    {
+      "url": "/admin/email-template",
+      "name": "Email Templates",
+      "icon": "menu-icon tf-icons ti ti-mail",
+      "slug": "admin.email-template",
+      "access": "admin"
+    },
+    {
+      "url": "/admin/bulk-email",
+      "name": "Send Email to Clients",
+      "icon": "menu-icon tf-icons ti ti-send",
+      "slug": "admin.bulk-email.create",
+      "access": "admin"
+    },
+    {
+      "url": "admin/setting",
+      "name": "Settings",
+      "icon": "menu-icon tf-icons ti ti-settings",
+      "slug": "admin.setting",
+      "access": "admin"
+    },
+    {
+      "url": "admin/transactions",
+      "name": "Transactions",
+      "icon": "menu-icon tf-icons ti ti-currency-dollar",
+      "slug": "admin.transactions",
+      "access": "admin"
+    },
+     {
+      "url": "/user/suggestion/add",
+      "name": "Suggestions",
+      "icon": "menu-icon tf-icons ti ti-bulb",
+      "slug": "user.suggestion",
+      "access": "web"
+    },
+    {
+      "url": "/user/logout",
+      "name": "Logout",
+      "icon": "menu-icon tf-icons ti ti-logout",
+      "slug": "logout",
+      "access": "web"
+    },
+     {
+      "url": "/admin/suggestions",
+      "name": "Suggestions",
+      "icon": "menu-icon tf-icons ti ti-bulb",
+      "slug": "admin.suggestions",
+      "access": "admin"
+    },
+     {
+      "url": "/admin/how-it-works",
+      "name": "How It Works",
+      "icon": "menu-icon tf-icons ti ti-help",
+      "slug": "admin.how_it_works",
+      "access": "admin"
+    },
+    {
+      "url": "/admin/logout",
+      "name": "Logout",
+      "icon": "menu-icon tf-icons ti ti-logout",
+      "slug": "logout",
+      "access": "admin"
+    }
+  ]
+}

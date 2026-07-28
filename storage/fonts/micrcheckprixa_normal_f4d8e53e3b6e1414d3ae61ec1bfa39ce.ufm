@@ -1,0 +1,99 @@
+StartFontMetrics 4.1
+Notice Converted by PHP-font-lib
+Comment https://github.com/dompdf/php-font-lib
+EncodingScheme FontSpecific
+Copyright Copyright (c) 2010 by CheckPrixa. All rights reserved.
+FontName MICRCheckPrixa
+FontSubfamily Regular
+UniqueID CheckPrixa: MICRCheckPrixa: 2010
+FullName MICRCheckPrixa
+Version Version 1.00 
+PostScriptName MICRCheckPrixa
+Manufacturer CheckPrixa
+Designer CheckPrixa
+Description Copyright (c) 2010 by CheckPrixa. All rights reserved.
+FontVendorURL http://www.micre13b.com
+FontDesignerURL http://www.micre13b.com
+LicenseDescription May be embedded into PDF or XPS files.
+LicenseURL http://www.micre13b.com
+Weight Medium
+ItalicAngle 0
+IsFixedPitch false
+UnderlineThickness 40
+UnderlinePosition -60
+FontHeightOffset 67
+Ascender 702
+Descender 0
+FontBBox -63 -213 950 741
+StartCharMetrics 72
+U 32 ; WX 643 ; N space ; G 3
+U 45 ; WX 643 ; N hyphen ; G 4
+U 47 ; WX 643 ; N slash ; G 5
+U 48 ; WX 643 ; N zero ; G 6
+U 49 ; WX 643 ; N one ; G 7
+U 50 ; WX 643 ; N two ; G 8
+U 51 ; WX 643 ; N three ; G 9
+U 52 ; WX 643 ; N four ; G 10
+U 53 ; WX 643 ; N five ; G 11
+U 54 ; WX 643 ; N six ; G 12
+U 55 ; WX 643 ; N seven ; G 13
+U 56 ; WX 643 ; N eight ; G 14
+U 57 ; WX 643 ; N nine ; G 15
+U 58 ; WX 643 ; N colon ; G 16
+U 59 ; WX 643 ; N semicolon ; G 17
+U 65 ; WX 750 ; N A ; G 18
+U 66 ; WX 672 ; N B ; G 19
+U 67 ; WX 685 ; N C ; G 20
+U 68 ; WX 737 ; N D ; G 21
+U 69 ; WX 625 ; N E ; G 22
+U 70 ; WX 552 ; N F ; G 23
+U 71 ; WX 758 ; N G ; G 24
+U 72 ; WX 751 ; N H ; G 25
+U 73 ; WX 342 ; N I ; G 26
+U 74 ; WX 397 ; N J ; G 27
+U 75 ; WX 752 ; N K ; G 28
+U 76 ; WX 628 ; N L ; G 29
+U 77 ; WX 926 ; N M ; G 30
+U 78 ; WX 739 ; N N ; G 31
+U 79 ; WX 746 ; N O ; G 32
+U 80 ; WX 576 ; N P ; G 33
+U 81 ; WX 738 ; N Q ; G 34
+U 82 ; WX 691 ; N R ; G 35
+U 83 ; WX 560 ; N S ; G 36
+U 84 ; WX 590 ; N T ; G 37
+U 85 ; WX 752 ; N U ; G 38
+U 86 ; WX 724 ; N V ; G 39
+U 87 ; WX 946 ; N W ; G 40
+U 88 ; WX 742 ; N X ; G 41
+U 89 ; WX 694 ; N Y ; G 42
+U 90 ; WX 622 ; N Z ; G 43
+U 91 ; WX 304 ; N bracketleft ; G 44
+U 93 ; WX 301 ; N bracketright ; G 45
+U 97 ; WX 445 ; N a ; G 46
+U 98 ; WX 506 ; N b ; G 47
+U 99 ; WX 450 ; N c ; G 48
+U 100 ; WX 510 ; N d ; G 49
+U 101 ; WX 462 ; N e ; G 50
+U 102 ; WX 292 ; N f ; G 51
+U 103 ; WX 500 ; N g ; G 52
+U 104 ; WX 520 ; N h ; G 53
+U 105 ; WX 278 ; N i ; G 54
+U 106 ; WX 278 ; N j ; G 55
+U 107 ; WX 510 ; N k ; G 56
+U 108 ; WX 277 ; N l ; G 57
+U 109 ; WX 805 ; N m ; G 58
+U 110 ; WX 518 ; N n ; G 59
+U 111 ; WX 506 ; N o ; G 60
+U 112 ; WX 516 ; N p ; G 61
+U 113 ; WX 512 ; N q ; G 62
+U 114 ; WX 344 ; N r ; G 63
+U 115 ; WX 402 ; N s ; G 64
+U 116 ; WX 290 ; N t ; G 65
+U 117 ; WX 518 ; N u ; G 66
+U 118 ; WX 494 ; N v ; G 67
+U 119 ; WX 753 ; N w ; G 68
+U 120 ; WX 503 ; N x ; G 69
+U 121 ; WX 514 ; N y ; G 70
+U 122 ; WX 463 ; N z ; G 71
+EndCharMetrics
+EndFontMetrics
