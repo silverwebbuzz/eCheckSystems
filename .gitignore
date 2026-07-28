@@ -1,0 +1,144 @@
+# -----------------------------------------------------------------------------
+# Laravel .gitignore — security & best practices
+# Never commit secrets, credentials, or machine-local artifacts.
+# -----------------------------------------------------------------------------
+
+# Environment & secrets (CRITICAL — do not remove)
+.env
+.env.*
+!.env.example
+!.env.testing
+.phpunit.result.cache
+
+# Auth / keys / certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+auth.json
+credentials.json
+secrets.json
+*.secret
+homestead.yaml
+homestead.json
+
+# Composer
+/vendor
+composer.phar
+
+# Node / frontend build
+/node_modules
+/public/build
+/public/hot
+/public/storage
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+bun.lockb
+
+# Runtime uploads / generated files (do not commit)
+/public/checks/*
+!/public/checks/.gitignore
+/public/checks.zip
+/public/sign/*
+!/public/sign/.gitignore
+/public/logos/*
+!/public/logos/.gitignore
+
+# Laravel runtime & caches
+/bootstrap/cache/*.php
+!/bootstrap/cache/.gitignore
+/storage/*.key
+/storage/pail
+/storage/framework/cache/data/*
+!/storage/framework/cache/data/.gitignore
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitignore
+/storage/framework/testing/*
+!/storage/framework/testing/.gitignore
+/storage/framework/views/*
+!/storage/framework/views/.gitignore
+/storage/logs/*
+!/storage/logs/.gitignore
+/storage/app/public/*
+!/storage/app/public/.gitignore
+/storage/app/private/*
+!/storage/app/private/.gitignore
+
+# Testing & coverage
+/coverage
+.phpunit.cache
+.phpunit.result.cache
+clover.xml
+.php-cs-fixer.cache
+.phpstan.cache
+.phpstan.result.cache
+infection.json.dist.bak
+
+# IDE / editor
+/.idea
+/.vscode
+/.fleet
+/.nova
+/.zed
+*.swp
+*.swo
+*~
+.project
+.settings
+.classpath
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Local / Docker / Sail overrides
+docker-compose.override.yml
+/.docker
+Homestead.json
+Homestead.yaml
+
+# Logs & temp
+*.log
+*.tmp
+*.temp
+*.cache
+/tmp
+
+# Backups & dumps (often contain PII / DB data)
+*.sql
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+*.backup
+*.dump
+
+# Package managers / lockfile notes
+# Keep composer.lock and package-lock.json / yarn.lock / pnpm-lock.yaml
+# committed for apps (reproducible installs). Ignore only local tooling below.
+
+# Optional local tooling
+/.phpactor.json
+/.phplint.cache
+/rr
+.rr.yaml
+frankenphp
+Caddyfile.local
+
+# Vagrant
+/.vagrant
+
+# Envoyer / deploy artifacts
+/envoy.blade.php.bak
