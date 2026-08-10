@@ -181,13 +181,10 @@
                         @if ($package_id != '-1')
                             <div class="col-md-6">
                                 @if ($package_data['RemainingChecks'] <= 0 && $package_data['is_unlimited'] == false)
-                                    <div class="alert alert-warning mb-6" role="alert">
-                                        <h5 class="alert-heading mb-1 d-flex align-items-center">
-                                            <span class="alert-icon rounded"><i
-                                                    class="ti ti-alert-triangle ti-md"></i></span>
-                                            <span>We need your attention!</span>
-                                        </h5>
-                                        <span class="ms-11 ps-1">Your plan requires update</span>
+                                    <div class="alert alert-danger mb-6" role="alert">
+                                        You've used all of your checks for this billing period.
+                                        Your check allowance resets on <strong>{{ $package_data['expiryDate'] }}</strong>.
+                                        You can wait until then, or upgrade your plan for more checks.
                                     </div>
                                 @endif
                                 <div class="plan-statistics">

@@ -149,7 +149,10 @@ class CheckController extends Controller
 
         $how_it_works = HowItWork::select('section', 'link')->where('status', 'Active')->pluck('link', 'section');
 
-        return view('user.check.process_payment_check', compact('how_it_works'));
+        $user = Auth::user();
+        $packages = Package::where('Status', 'Active')->whereRaw('LOWER(Name) != ?', ['trial'])->get();
+
+        return view('user.check.process_payment_check', compact('how_it_works', 'user', 'packages'));
     }
 
     public function delete($id)
@@ -208,7 +211,11 @@ class CheckController extends Controller
         $isSubscribed = Helpers::isSubscribed(Auth::user());
 
         if (!$isSubscribed) {
-            return redirect()->route('check.process_payment')->with('info', 'Your check limit has been exceeded. Please upgrade your plan.');
+            $message = Helpers::hasExhaustedCheckAllowance(Auth::user())
+                ? Helpers::checkAllowanceExhaustedMessage(Auth::user(), true)
+                : 'Please select or renew a subscription package to continue creating checks.';
+
+            return redirect()->route('check.process_payment')->with('info', $message);
         }
 
         // $lastCheck = Checks::where('UserID', Auth::id())->where('CheckType', 'Process Payment')->latest('CheckID')->first();
@@ -434,7 +441,9 @@ class CheckController extends Controller
         }
 
         $how_it_works = HowItWork::select('section', 'link')->where('status', 'Active')->pluck('link', 'section');
-        return view('user.check.send_payment_check', compact('how_it_works'));
+        $user = Auth::user();
+        $packages = Package::where('Status', 'Active')->whereRaw('LOWER(Name) != ?', ['trial'])->get();
+        return view('user.check.send_payment_check', compact('how_it_works', 'user', 'packages'));
     }
     public function send_payment_check()
     {
@@ -445,7 +454,11 @@ class CheckController extends Controller
         $isSubscribed = Helpers::isSubscribed(Auth::user());
 
         if (!$isSubscribed) {
-            return redirect()->route('check.send_payment')->with('info', 'Your check limit has been exceeded. Please upgrade your plan.');
+            $message = Helpers::hasExhaustedCheckAllowance(Auth::user())
+                ? Helpers::checkAllowanceExhaustedMessage(Auth::user(), true)
+                : 'Please select or renew a subscription package to continue creating checks.';
+
+            return redirect()->route('check.send_payment')->with('info', $message);
         }
 
         $payees = Payors::where('UserID', Auth::id())->where('Type', 'Payee')->where('Category', 'SP')->orderBy('Name', 'asc')->get();
@@ -999,7 +1012,11 @@ class CheckController extends Controller
         $isSubscribed = Helpers::isSubscribed(Auth::user());
 
         if (!$isSubscribed) {
-            return redirect()->back()->with('info', 'Your check limit has been exceeded. Please upgrade your plan.');
+            $message = Helpers::hasExhaustedCheckAllowance(Auth::user())
+                ? Helpers::checkAllowanceExhaustedMessage(Auth::user(), true)
+                : 'Please select or renew a subscription package to continue creating checks.';
+
+            return redirect()->back()->with('info', $message);
         }
         $check_date = Carbon::parse(str_replace('/', '-', $check->ExpiryDate))->format('m/d/Y');
 
@@ -1045,7 +1062,11 @@ class CheckController extends Controller
         $isSubscribed = Helpers::isSubscribed(Auth::user());
 
         if (!$isSubscribed) {
-            return redirect()->back()->with('info', 'Your check limit has been exceeded. Please upgrade your plan.');
+            $message = Helpers::hasExhaustedCheckAllowance(Auth::user())
+                ? Helpers::checkAllowanceExhaustedMessage(Auth::user(), true)
+                : 'Please select or renew a subscription package to continue creating checks.';
+
+            return redirect()->back()->with('info', $message);
         }
 
         $check_date = Carbon::parse(str_replace('/', '-', $check->ExpiryDate))->format('m/d/Y');

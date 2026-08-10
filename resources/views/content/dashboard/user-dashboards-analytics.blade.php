@@ -86,6 +86,11 @@
                 {{ session('success') }}
             </div>
         @endif
+@if (session('info'))
+            <div class="alert alert-danger">
+                {!! session('info') !!}
+            </div>
+        @endif
     @php
         $progress = !empty($package_data['remainingDays'])
             ? ($package_data['remainingDays'] * 100) / $package_data['total_days']
@@ -142,7 +147,11 @@
                                             aria-valuemax="100" style="width: {{ $progress }}%"></div>
                                     </div>
                                     @if ($remaining_checks <= 0 && $package->CheckLimitPerMonth != 0)
-                                        <small class="text-danger">Your plan requires update</small>
+                                        <div class="alert alert-danger mt-3 mb-0" role="alert">
+                                            You've used all of your checks for this billing period.
+                                            Your check allowance resets on <strong>{{ $package_data['expiryDate'] }}</strong>.
+                                            You can wait until then, or upgrade your plan for more checks.
+                                        </div>
                                     @endif
                                     @if (!empty($paymentSubscription->NextPackageID))
                                         <div class="alert alert-warning mt-3" role="alert">

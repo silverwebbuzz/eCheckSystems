@@ -24,6 +24,7 @@ use App\Mail\AdminMail;
 use App\Mail\RegistrationVerificationMail;
 use Illuminate\Support\Facades\Crypt;
 use App\Mail\SendNewSubMail;
+use App\Helpers\Helpers;
 
 class UserAuthController extends Controller
 {
@@ -90,16 +91,9 @@ class UserAuthController extends Controller
                 return redirect()->back()->withErrors(['login' => 'User status is not Active'])->withInput();
             }
             
-            $packag_c = PaymentSubscription::where('UserID', $user->UserID)->where('PackageID', $user->CurrentPackageID)
-                ->orderBy('PaymentSubscriptionID', 'desc')->first()?->RemainingChecks ?? 0;
-
-            if($user->CurrentPackageID == null ){
-                return redirect()->route('user.package', ['user_id' => $user->UserID]);
-            }
-
-            $package = Package::find($user->CurrentPackageID);
-
-            if ($packag_c == 0 && $user->CurrentPackageID != -1 && $package->CheckLimitPerMonth != 0) {
+            // Users with no package yet must pick one. Do NOT send subscribed users
+            // who only exhausted their monthly checks to the package picker.
+            if ($user->CurrentPackageID == null) {
                 return redirect()->route('user.package', ['user_id' => $user->UserID]);
             }
 
@@ -128,6 +122,11 @@ class UserAuthController extends Controller
             QBOCompany::where('user_id', $user->UserID)->update([
                 'status' => 'not connected'
             ]);
+
+            if (Helpers::hasExhaustedCheckAllowance($user)) {
+                return redirect()->route('user.dashboard')
+                    ->with('info', Helpers::checkAllowanceExhaustedMessage($user));
+            }
 
             return redirect()->route('user.dashboard');
         }
