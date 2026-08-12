@@ -29,6 +29,8 @@ use Illuminate\Support\Facades\Mail;
 use App\Models\User;
 use App\Mail\SendWebFormMailForCilent;
 use App\Helpers\Helpers;
+use App\Models\QBOCompany;
+use App\Services\QuickBooksService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
@@ -160,8 +162,22 @@ class CheckController extends Controller
 
             $check = Checks::where('UserID', Auth::user()->UserID)->where('CheckID', $id)->first();
             
-            if($check && $check->Status == 'draft'){ 
+            if($check && in_array($check->Status, ['draft', 'imported_from_qbo'], true)){ 
                 
+                // Sync delete to QuickBooks when linked
+                if ($check->qbo_id) {
+                    try {
+                        $qboCompany = $check->qbo_company_id
+                            ? QBOCompany::where('id', $check->qbo_company_id)->where('user_id', Auth::id())->first()
+                            : app(QuickBooksService::class)->activeCompanyForUser(Auth::id());
+                        if ($qboCompany) {
+                            app(QuickBooksService::class)->deleteCheckInQbo($check, $qboCompany);
+                        }
+                    } catch (Exception $e) {
+                        Log::warning('QBO delete sync failed', ['check' => $id, 'error' => $e->getMessage()]);
+                    }
+                }
+
                 $subscription = PaymentSubscription::where('UserID', Auth::user()->UserID)->where('Status', 'Active')->first();
 
                 if ($subscription != null) {
@@ -177,12 +193,19 @@ class CheckController extends Controller
                         GridItem::where('CheckID', $check->CheckID)->delete();
                     }
 
-                    $subscription->ChecksUsed -= 1;
-                    $subscription->RemainingChecks += 1;
+                    if (in_array($check->CheckType, ['Process Payment', 'Make Payment'], true)) {
+                        $subscription->ChecksUsed -= 1;
+                        $subscription->RemainingChecks += 1;
+                        $subscription->save();
+                    }
 
-                    $subscription->save();
-                    
+                    \App\Models\CheckLineItem::where('CheckID', $check->CheckID)->delete();
                     $check->delete();
+                } else if ($check->CheckType === 'QuickBooks' || $check->Status === 'imported_from_qbo') {
+                    \App\Models\CheckLineItem::where('CheckID', $check->CheckID)->delete();
+                    $check->delete();
+                } else {
+                    return redirect()->back()->with('info', 'Active subscription required to delete this check.');
                 }
             }else{
                 return redirect()->back()->with('info', 'Check not found.');
@@ -1004,29 +1027,63 @@ class CheckController extends Controller
         $check_date = Carbon::parse(str_replace('/', '-', $check->ExpiryDate))->format('m/d/Y');
 
         $data = [];
-        $payor = Payors::withTrashed()->find($check->PayorID);
         $payee = Payors::withTrashed()->find($check->PayeeID);
-        $data['payor_name'] = $payor->Name;
-        $data['address1'] = $payor->Address1;
-        $data['address2'] = $payor->Address2;
-        $data['city'] = $payor->City;
-        $data['state'] = $payor->State;
-        $data['zip'] = $payor->Zip;
+
+        // QuickBooks imports use mapped Company bank details (Payor may be empty)
+        if ($check->CheckType === 'QuickBooks' || $check->Status === 'imported_from_qbo' || $check->qbo_id) {
+            $issuer = $this->resolveQboIssuerBank($check);
+            if (!$issuer) {
+                return redirect()->route('qbo.settings')
+                    ->with('error', 'Map your QuickBooks company to one of our Companies (with bank details) before generating.');
+            }
+            $data['payor_name'] = $issuer['name'];
+            $data['address1'] = $issuer['address1'];
+            $data['address2'] = $issuer['address2'];
+            $data['city'] = $issuer['city'];
+            $data['state'] = $issuer['state'];
+            $data['zip'] = $issuer['zip'];
+            $data['routing_number'] = $issuer['routing_number'];
+            $data['account_number'] = $issuer['account_number'];
+            $data['bank_name'] = $issuer['bank_name'];
+        } else {
+            $payor = Payors::withTrashed()->find($check->PayorID);
+            $data['payor_name'] = $payor->Name;
+            $data['address1'] = $payor->Address1;
+            $data['address2'] = $payor->Address2;
+            $data['city'] = $payor->City;
+            $data['state'] = $payor->State;
+            $data['zip'] = $payor->Zip;
+            $data['routing_number'] = $payor->RoutingNumber;
+            $data['account_number'] = $payor->AccountNumber;
+            $data['bank_name'] = $payor->BankName;
+        }
+
         $data['check_number'] = $check->CheckNumber;
         $data['check_date'] = $check_date;
-        $data['payee_name'] = $payee->Name;
+        $data['payee_name'] = $payee->Name ?? '';
         $data['amount'] = $check->Amount;
         $data['service_fee'] = $check->ServiceFees;
         $data['total'] = $check->Total;
         $data['amount_word'] = $this->numberToWords($check->Total);
         $data['memo'] = $check->Memo;
-        $data['routing_number'] = $payor->RoutingNumber;
-        $data['account_number'] = $payor->AccountNumber;
-        $data['bank_name'] = $payor->BankName;
         $data['signature'] = (!empty($check->DigitalSignatureRequired)) ? $check->DigitalSignature : '';
         $data['email'] = !empty($payee->Email) ? $payee->Email : '';
         $data['package'] = Auth::user()->CurrentPackageID;
         $data['check_id'] = $id;
+
+        $lineItems = $check->lineItems;
+        if ($lineItems && $lineItems->isNotEmpty()) {
+            $data['grid_headers'] = ['Category', 'Description', 'Amount'];
+            $ItemsArr = [];
+            foreach ($lineItems as $line) {
+                $ItemsArr[] = [
+                    $line->account_name,
+                    $line->description,
+                    number_format((float) $line->amount, 2),
+                ];
+            }
+            $data['grid_items'] = $ItemsArr;
+        }
 
         $check_file = $this->generateAndSavePDF($data);
 
@@ -1034,6 +1091,8 @@ class CheckController extends Controller
         $check->CheckPDF = $check_file;
         $check->ip_address = request()->ip();
         $check->save();
+
+        $this->syncCheckToQuickBooksOnGenerate($check);
 
         return redirect()->back()->with('success', 'Check generated successfully.');
     }
@@ -1100,6 +1159,8 @@ class CheckController extends Controller
         $check->CheckPDF = $check_file;
         $check->ip_address = request()->ip();
         $check->save();
+
+        $this->syncCheckToQuickBooksOnGenerate($check);
 
         return redirect()->back()->with('success', 'Check generated successfully.');
     }
@@ -1729,6 +1790,20 @@ class CheckController extends Controller
             'is_seen' => 1
         ]);
 
+        // Clear Print later in QuickBooks after printing/downloading from our system
+        if ($check->qbo_id && $check->qbo_print_later) {
+            try {
+                $qboCompany = $check->qbo_company_id
+                    ? QBOCompany::where('id', $check->qbo_company_id)->where('user_id', $check->UserID)->first()
+                    : app(QuickBooksService::class)->activeCompanyForUser((int) $check->UserID);
+                if ($qboCompany) {
+                    app(QuickBooksService::class)->markPrintedInQbo($check, $qboCompany);
+                }
+            } catch (Exception $e) {
+                Log::warning('QBO mark printed failed', ['check' => $id, 'error' => $e->getMessage()]);
+            }
+        }
+
         $path = public_path('checks/' . $check->CheckPDF);
 
         if (!File::exists($path)) {
@@ -1737,6 +1812,67 @@ class CheckController extends Controller
 
         return response()->download($path);
         // return ['status'=>true, 'url'=> asset('checks/' . $check->CheckPDF)];
+    }
+
+    /**
+     * Bank/issuer details for QBO-imported checks from mapped Company.
+     */
+    protected function resolveQboIssuerBank(Checks $check): ?array
+    {
+        $qboCompany = null;
+        if ($check->qbo_company_id) {
+            $qboCompany = QBOCompany::where('id', $check->qbo_company_id)
+                ->where('user_id', Auth::id())
+                ->first();
+        }
+        if (!$qboCompany) {
+            $qboCompany = app(QuickBooksService::class)->activeCompanyForUser(Auth::id());
+        }
+        if (!$qboCompany || !$qboCompany->company_id) {
+            return null;
+        }
+
+        $company = Company::where('CompanyID', $qboCompany->company_id)
+            ->where('UserID', Auth::id())
+            ->first();
+
+        if (!$company) {
+            return null;
+        }
+
+        return [
+            'name' => $company->Name,
+            'address1' => $company->Address1,
+            'address2' => $company->Address2,
+            'city' => $company->City,
+            'state' => $company->State,
+            'zip' => $company->Zip,
+            'routing_number' => $company->RoutingNumber,
+            'account_number' => $company->AccountNumber,
+            'bank_name' => $company->BankName,
+        ];
+    }
+
+    /**
+     * Push/update check in QuickBooks when PDF is generated (outbound sync).
+     */
+    protected function syncCheckToQuickBooksOnGenerate(Checks $check): void
+    {
+        try {
+            $qbo = app(QuickBooksService::class);
+            $qboCompany = $qbo->activeCompanyForUser((int) $check->UserID);
+            if (!$qboCompany) {
+                return;
+            }
+
+            // Imported checks already exist in QBO — just keep link; still allow update
+            $qbo->pushCheckToQbo($check->fresh(), $qboCompany);
+        } catch (Exception $e) {
+            Log::warning('QBO push on generate failed', [
+                'check' => $check->CheckID,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function isExists(Request $request)

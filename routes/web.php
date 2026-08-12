@@ -202,13 +202,8 @@ Route::middleware([CheckBlockedIP::class])->group(function () {
 
     // End Stripe routes
 
-    //Quickbook routes
-
-    Route::get('/quickbooks/connect', [QuickBooksController::class, 'connect'])->name('qbo.connect');
+    // QuickBooks OAuth callback must stay outside auth (returns from Intuit)
     Route::get('/quickbooks/callback', [QuickBooksController::class, 'callback'])->name('qbo.callback');
-
-
-    // End Quickbook routes
 
     Route::get('/admin/login', [AdminAuthController::class, 'adminLogin'])->name('admin.login');
     Route::post('/admin/login', [AdminAuthController::class, 'login'])->name('admin.login-action');
@@ -363,9 +358,19 @@ Route::middleware([CheckBlockedIP::class])->group(function () {
 
             Route::get('new-signature', [CheckController::class, 'new_signature'])->name('new_signature');
 
+            // Settings → QuickBooks
+            Route::get('/settings/quickbooks', [QuickBooksController::class, 'settings'])->name('qbo.settings');
+            Route::get('/quickbooks/connect', [QuickBooksController::class, 'connect'])->name('qbo.connect');
             Route::get('/quickbooks/companies', [QuickBooksController::class, 'getCompanies'])->name('qbo.getCompanies');
             Route::get('/quickbooks/companies/connect/{id}', [QuickBooksController::class, 'connectCompany'])->name('qbo.connect.company');
-            Route::get('//quickbooks/sync/{qbo_company_id}', [QuickBooksController::class, 'sync'])->name('qbo.sync');
+            Route::get('/quickbooks/set-active/{id}', [QuickBooksController::class, 'setActive'])->name('qbo.setActive');
+            Route::get('/quickbooks/disconnect/{id}', [QuickBooksController::class, 'disconnect'])->name('qbo.disconnect');
+            Route::post('/quickbooks/mapping/{id}', [QuickBooksController::class, 'updateMapping'])->name('qbo.updateMapping');
+            Route::get('/quickbooks/sync/{qbo_company_id?}', [QuickBooksController::class, 'sync'])->name('qbo.sync');
+
+            // QuickBooks Checks list
+            Route::get('/quickbooks/checks', [QuickBooksController::class, 'checks'])->name('qbo.checks');
+            Route::get('/quickbooks/checks/{id}', [QuickBooksController::class, 'showCheck'])->name('qbo.checks.show');
 
             Route::get('/check/delete/{id}', [CheckController::class, 'delete'])->name('check.delete');
         });

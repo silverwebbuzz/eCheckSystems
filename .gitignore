@@ -124,6 +124,11 @@ Homestead.yaml
 *.bak
 *.backup
 *.dump
+achchecks_app*.sql
+
+# Local project docs & knowledge graph (not for git)
+/documentation/
+/graphify-out/
 
 # Package managers / lockfile notes
 # Keep composer.lock and package-lock.json / yarn.lock / pnpm-lock.yaml
