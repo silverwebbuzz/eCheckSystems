@@ -17,7 +17,7 @@
         <div class="card-header d-flex justify-content-between align-items-center">
             <div>
                 <h5 class="mb-1">QuickBooks Online</h5>
-                <small class="text-muted">Sandbox first. Connect your QBO company, map bank identity, then sync checks.</small>
+                <small class="text-muted">Sandbox first. Connect your QBO company, map bank identity. New/updated checks arrive via <strong>webhook</strong> (real-time). Use Sync now only for a one-time catch-up.</small>
             </div>
             <div class="d-flex gap-2">
                 <a href="{{ route('qbo.connect') }}" class="btn btn-primary">
@@ -35,10 +35,20 @@
             <p class="mb-0">
                 Environment:
                 <strong>{{ config('quickbooks.environment') === 'development' ? 'Sandbox' : 'Production' }}</strong>
+                · Inbound:
+                <strong>Webhook + queue</strong>
+                <code class="ms-1">POST {{ url('/api/quickbooks/webhook') }}</code>
+                · Queue: <code>quickbooks</code>
                 @if ($active && $active->last_sync_at)
                     · Last sync: {{ $active->last_sync_at->format('m/d/Y H:i') }}
                 @endif
             </p>
+            @if (!config('quickbooks.webhook_verifier_token'))
+                <div class="alert alert-warning mt-3 mb-0">
+                    Set <code>QBO_WEBHOOK_VERIFIER_TOKEN</code> in <code>.env</code> (Intuit Developer → Webhooks → Show token)
+                    and subscribe to entity <strong>Purchase</strong> (Create / Update / Delete / Void).
+                </div>
+            @endif
         </div>
     </div>
 

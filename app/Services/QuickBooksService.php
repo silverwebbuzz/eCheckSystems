@@ -542,6 +542,153 @@ class QuickBooksService
         ]);
     }
 
+    /**
+     * Verify Intuit webhook signature (HMAC-SHA256 → base64).
+     * @see https://developer.intuit.com/app/developer/qbo/docs/develop/webhooks/configure-webhooks
+     */
+    public function verifyWebhookSignature(string $rawPayload, ?string $signature): bool
+    {
+        $token = config('quickbooks.webhook_verifier_token');
+        if (!$token || !$signature) {
+            return false;
+        }
+
+        $computed = base64_encode(hash_hmac('sha256', $rawPayload, $token, true));
+
+        return hash_equals($computed, $signature);
+    }
+
+    /**
+     * Process Intuit webhook JSON (after signature verified).
+     * Webhooks only notify — we fetch the single Purchase when needed.
+     */
+    public function processWebhookPayload(array $payload): array
+    {
+        $handled = 0;
+        $skipped = 0;
+        $allowed = array_map('strtolower', config('quickbooks.webhook_entities', ['Purchase']));
+
+        foreach ($payload['eventNotifications'] ?? [] as $notification) {
+            $realmId = (string) ($notification['realmId'] ?? '');
+            if ($realmId === '') {
+                continue;
+            }
+
+            $qboCompany = QBOCompany::where('realm_id', $realmId)
+                ->where('status', 'connected')
+                ->first();
+
+            if (!$qboCompany) {
+                Log::info('QBO webhook ignored — no connected company for realm', ['realmId' => $realmId]);
+                continue;
+            }
+
+            $entities = $notification['dataChangeEvent']['entities'] ?? [];
+            foreach ($entities as $entity) {
+                $name = (string) ($entity['name'] ?? '');
+                $id = (string) ($entity['id'] ?? '');
+                $operation = strtolower((string) ($entity['operation'] ?? ''));
+
+                if ($id === '' || !in_array(strtolower($name), $allowed, true)) {
+                    $skipped++;
+                    continue;
+                }
+
+                if (in_array($operation, ['delete', 'void'], true)) {
+                    $this->deleteLocalCheckByQboId($id, (int) $qboCompany->user_id);
+                    $handled++;
+                    continue;
+                }
+
+                if (in_array($operation, ['create', 'update', 'merge'], true)) {
+                    $result = $this->importPurchaseById($qboCompany, $id);
+                    if ($result['imported']) {
+                        $handled++;
+                    } else {
+                        $skipped++;
+                    }
+                }
+            }
+        }
+
+        return compact('handled', 'skipped');
+    }
+
+    /**
+     * Fetch one Purchase by Id and import only if it is a Check.
+     */
+    public function importPurchaseById(QBOCompany $qboCompany, string $purchaseId): array
+    {
+        $dataService = $this->dataServiceForCompany($qboCompany);
+        $purchase = $dataService->FindById('Purchase', $purchaseId);
+
+        if ($error = $dataService->getLastError()) {
+            throw new Exception($error->getResponseBody() ?: "Failed to fetch Purchase {$purchaseId}");
+        }
+
+        if (!$purchase) {
+            return ['imported' => false, 'reason' => 'not_found'];
+        }
+
+        $paymentType = (string) ($purchase->PaymentType ?? '');
+        if (strcasecmp($paymentType, 'Check') !== 0) {
+            return ['imported' => false, 'reason' => 'not_a_check'];
+        }
+
+        $result = $this->upsertLocalCheckFromQboPurchase(
+            $purchase,
+            $qboCompany,
+            (int) $qboCompany->user_id,
+            $dataService
+        );
+
+        QboSyncLog::create([
+            'user_id' => $qboCompany->user_id,
+            'qbo_company_id' => $qboCompany->id,
+            'direction' => 'inbound',
+            'action' => 'webhook_purchase',
+            'status' => 'success',
+            'records' => 1,
+            'message' => ($result['created'] ? 'Created' : 'Updated') . " check from QBO Purchase {$purchaseId}",
+        ]);
+
+        $qboCompany->update(['last_sync_at' => now()]);
+
+        return ['imported' => true, 'created' => $result['created'], 'warning' => $result['warning'] ?? null];
+    }
+
+    public function deleteLocalCheckByQboId(string $qboId, int $userId): void
+    {
+        $check = Checks::where('UserID', $userId)->where('qbo_id', $qboId)->first();
+        if (!$check) {
+            return;
+        }
+
+        $qboCompanyId = $check->qbo_company_id;
+
+        // Do not wipe locally if user already generated/printed
+        if ($check->Status === 'generated') {
+            $check->update([
+                'qbo_sync_status' => 'deleted_in_qbo',
+                'qbo_print_later' => false,
+            ]);
+            return;
+        }
+
+        CheckLineItem::where('CheckID', $check->CheckID)->delete();
+        $check->delete();
+
+        QboSyncLog::create([
+            'user_id' => $userId,
+            'qbo_company_id' => $qboCompanyId,
+            'direction' => 'inbound',
+            'action' => 'webhook_delete',
+            'status' => 'success',
+            'records' => 1,
+            'message' => "Deleted local check for QBO Id {$qboId}",
+        ]);
+    }
+
     public function markPrintedInQbo(Checks $check, QBOCompany $qboCompany): void
     {
         if (!$check->qbo_id) {

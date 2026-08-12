@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Checks;
 use App\Models\Company;
 use App\Models\QBOCompany;
+use App\Jobs\SyncQuickBooksChecksJob;
 use App\Services\QuickBooksService;
 use Exception;
 use Illuminate\Http\Request;
@@ -200,17 +201,10 @@ class QuickBooksController extends Controller
             return redirect()->route('qbo.settings')->with('error', 'Connect and activate a QuickBooks company first.');
         }
 
-        try {
-            $result = $this->qbo->syncChecksFromQbo($company, $userId);
-            $msg = "Sync complete. Imported {$result['imported']}, updated {$result['updated']}.";
-            if (!empty($result['warnings'])) {
-                $msg .= ' Warnings: ' . count($result['warnings']) . ' check number conflict(s).';
-            }
-            return redirect()->route('qbo.checks')->with('success', $msg);
-        } catch (Exception $e) {
-            Log::error('QBO sync failed', ['error' => $e->getMessage()]);
-            return redirect()->route('qbo.settings')->with('error', 'Sync failed: ' . $e->getMessage());
-        }
+        SyncQuickBooksChecksJob::dispatch((int) $company->id, (int) $userId);
+
+        return redirect()->route('qbo.checks')
+            ->with('success', 'QuickBooks sync has been queued. Checks will appear shortly — refresh this page in a moment.');
     }
 
     /** @deprecated keep old route name working */

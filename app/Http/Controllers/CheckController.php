@@ -31,6 +31,9 @@ use App\Mail\SendWebFormMailForCilent;
 use App\Helpers\Helpers;
 use App\Models\QBOCompany;
 use App\Services\QuickBooksService;
+use App\Jobs\PushCheckToQuickBooksJob;
+use App\Jobs\DeleteCheckFromQuickBooksJob;
+use App\Jobs\MarkQuickBooksCheckPrintedJob;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
@@ -164,18 +167,13 @@ class CheckController extends Controller
             
             if($check && in_array($check->Status, ['draft', 'imported_from_qbo'], true)){ 
                 
-                // Sync delete to QuickBooks when linked
+                // Sync delete to QuickBooks when linked (queued)
                 if ($check->qbo_id) {
-                    try {
-                        $qboCompany = $check->qbo_company_id
-                            ? QBOCompany::where('id', $check->qbo_company_id)->where('user_id', Auth::id())->first()
-                            : app(QuickBooksService::class)->activeCompanyForUser(Auth::id());
-                        if ($qboCompany) {
-                            app(QuickBooksService::class)->deleteCheckInQbo($check, $qboCompany);
-                        }
-                    } catch (Exception $e) {
-                        Log::warning('QBO delete sync failed', ['check' => $id, 'error' => $e->getMessage()]);
-                    }
+                    DeleteCheckFromQuickBooksJob::dispatch(
+                        (string) $check->qbo_id,
+                        (int) Auth::id(),
+                        $check->qbo_company_id ? (int) $check->qbo_company_id : null
+                    )->afterCommit();
                 }
 
                 $subscription = PaymentSubscription::where('UserID', Auth::user()->UserID)->where('Status', 'Active')->first();
@@ -1790,18 +1788,9 @@ class CheckController extends Controller
             'is_seen' => 1
         ]);
 
-        // Clear Print later in QuickBooks after printing/downloading from our system
+        // Clear Print later in QuickBooks after printing/downloading (queued)
         if ($check->qbo_id && $check->qbo_print_later) {
-            try {
-                $qboCompany = $check->qbo_company_id
-                    ? QBOCompany::where('id', $check->qbo_company_id)->where('user_id', $check->UserID)->first()
-                    : app(QuickBooksService::class)->activeCompanyForUser((int) $check->UserID);
-                if ($qboCompany) {
-                    app(QuickBooksService::class)->markPrintedInQbo($check, $qboCompany);
-                }
-            } catch (Exception $e) {
-                Log::warning('QBO mark printed failed', ['check' => $id, 'error' => $e->getMessage()]);
-            }
+            MarkQuickBooksCheckPrintedJob::dispatch((int) $check->CheckID)->afterCommit();
         }
 
         $path = public_path('checks/' . $check->CheckPDF);
@@ -1854,25 +1843,16 @@ class CheckController extends Controller
     }
 
     /**
-     * Push/update check in QuickBooks when PDF is generated (outbound sync).
+     * Queue push/update of check to QuickBooks when PDF is generated (outbound sync).
      */
     protected function syncCheckToQuickBooksOnGenerate(Checks $check): void
     {
-        try {
-            $qbo = app(QuickBooksService::class);
-            $qboCompany = $qbo->activeCompanyForUser((int) $check->UserID);
-            if (!$qboCompany) {
-                return;
-            }
-
-            // Imported checks already exist in QBO — just keep link; still allow update
-            $qbo->pushCheckToQbo($check->fresh(), $qboCompany);
-        } catch (Exception $e) {
-            Log::warning('QBO push on generate failed', [
-                'check' => $check->CheckID,
-                'error' => $e->getMessage(),
-            ]);
+        $active = app(QuickBooksService::class)->activeCompanyForUser((int) $check->UserID);
+        if (!$active) {
+            return;
         }
+
+        PushCheckToQuickBooksJob::dispatch((int) $check->CheckID)->afterCommit();
     }
 
     public function isExists(Request $request)
