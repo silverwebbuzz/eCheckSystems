@@ -142,3 +142,7 @@ Caddyfile.local
 
 # Envoyer / deploy artifacts
 /envoy.blade.php.bak
+
+# Local docs & knowledge graph
+/documentation/
+/graphify-out/
