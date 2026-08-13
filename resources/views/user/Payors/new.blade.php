@@ -48,7 +48,19 @@
                             </div>
                         </div>
                         <div class="row mb-6">
-                            <label class="col-sm-2 col-form-label" for="email">Email</label>
+                            <label class="col-sm-2 col-form-label" for="account_nickname">Account nickname</label>
+                            <div class="col-sm-10">
+                                <input type="text" name="account_nickname" id="account_nickname" class="form-control"
+                                    value="{{ old('account_nickname') }}" />
+                                @if ($errors->has('account_nickname'))
+                                    <span class="text-danger">
+                                        {{ $errors->first('account_nickname') }}
+                                    </span>
+                                @endif
+                            </div>
+                        </div>
+                        <div class="row mb-6">
+                            <label class="col-sm-2 col-form-label" for="email">Email (optional)</label>
                             <div class="col-sm-10">
                                 <input type="text" name="email" id="email" class="form-control"
                                     value="{{ old('email') }}" />

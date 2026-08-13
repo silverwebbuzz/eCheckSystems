@@ -49,7 +49,19 @@
                             </div>
                         </div>
                         <div class="row mb-6">
-                            <label class="col-sm-2 col-form-label" for="email">Email</label>
+                            <label class="col-sm-2 col-form-label" for="account_nickname">Account nickname</label>
+                            <div class="col-sm-10">
+                                <input type="text" name="account_nickname" id="account_nickname" class="form-control"
+                                    value="{{ old('account_nickname', $payor->AccountNickname) }}" />
+                                @if ($errors->has('account_nickname'))
+                                    <span class="text-danger">
+                                        {{ $errors->first('account_nickname') }}
+                                    </span>
+                                @endif
+                            </div>
+                        </div>
+                        <div class="row mb-6">
+                            <label class="col-sm-2 col-form-label" for="email">Email (optional)</label>
                             <div class="col-sm-10">
                                 <input type="text" name="email" id="email" class="form-control"
                                     value="{{ $payor->Email }}" />
@@ -274,56 +286,5 @@
             showMaskOnHover: false,      // Don't show mask on hover
             showMaskOnFocus: false,      // Don't show mask on focus
         }).mask("#phone_number");
-
-        (function() {
-            var payorEmailCheckXhr = null;
-            var payorId = "{{ $payor->EntityID }}";
-            var category = $("#category").val() || "RP";
-
-            function clearEmailError() {
-                $("#email-error").text("");
-            }
-
-            function checkPayorEmailUnique() {
-                var email = $.trim($("#email").val());
-                clearEmailError();
-
-                if (!email) {
-                    return;
-                }
-
-                if (payorEmailCheckXhr) {
-                    payorEmailCheckXhr.abort();
-                }
-
-                payorEmailCheckXhr = $.ajax({
-                    url: "{{ route('user.check-payor-email') }}",
-                    method: "POST",
-                    data: {
-                        _token: "{{ csrf_token() }}",
-                        email: email,
-                        category: category,
-                        id: payorId
-                    },
-                    success: function(response) {
-                        if (response.errors && response.errors.email) {
-                            $("#email-error").text(response.errors.email[0]);
-                        } else {
-                            clearEmailError();
-                        }
-                    }
-                });
-            }
-
-            $("#email").on("blur", checkPayorEmailUnique);
-            $("#email").on("input", clearEmailError);
-
-            $("form").on("submit", function() {
-                if (payorEmailCheckXhr) {
-                    payorEmailCheckXhr.abort();
-                    payorEmailCheckXhr = null;
-                }
-            });
-        })();
     </script>
 @endsection

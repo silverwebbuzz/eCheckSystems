@@ -4,12 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\HowItWork;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Payors;
-use Carbon\Carbon;
-use Illuminate\Validation\Rule;
 use App\Models\User;
 
 class PayorsController extends Controller
@@ -196,19 +193,10 @@ class PayorsController extends Controller
     public function payor_store(Request $request)
     {
         $type = 'Payors';
-        $category = $request->category;
         $validator = Validator::make($request->all(), [
             'name' => 'required',
-            'email' => [
-                'nullable',
-                'email',
-                Rule::unique('Entities')
-                    ->where(function ($query) use ($category) {
-                        return $query->where('category', $category)
-                            ->where('Type', 'Payor')
-                            ->where('UserID', Auth::id());
-                    })
-            ],
+            'account_nickname' => 'nullable|string|max:255',
+            'email' => 'nullable|email',
             'address1' => 'required',
             'city' => 'required',
             'state' => 'required',
@@ -225,13 +213,11 @@ class PayorsController extends Controller
         }
 
         $payors_type = $request->type;
-        // if(!empty($request->same_as) && $request->same_as == 'on') {
-        //     $payors_type = 'Both';
-        // }
 
         $payor = new Payors();
 
         $payor->Name = $request->name;
+        $payor->AccountNickname = $request->account_nickname;
         $payor->UserID = Auth::id();
         $payor->Address1 = $request->address1;
         $payor->Address2 = $request->address2;
@@ -265,20 +251,10 @@ class PayorsController extends Controller
     public function payor_update(Request $request, $id)
     {
         $type = 'Payors';
-        $category = $request->category;
         $validator = Validator::make($request->all(), [
             'name' => 'required',
-            'email' => [
-                'nullable',
-                'email',
-                Rule::unique('Entities')
-                    ->where(function ($query) use ($category) {
-                        return $query->where('category', $category)
-                            ->where('Type', 'Payor')
-                            ->where('UserID', Auth::id());
-                    })
-                    ->ignore($id, 'EntityID')
-            ],
+            'account_nickname' => 'nullable|string|max:255',
+            'email' => 'nullable|email',
             'address1' => 'required',
             'city' => 'required',
             'state' => 'required',
@@ -303,6 +279,7 @@ class PayorsController extends Controller
         $payor = Payors::find($id);
 
         $payor->Name = $request->name;
+        $payor->AccountNickname = $request->account_nickname;
         $payor->UserID = Auth::id();
         $payor->Address1 = $request->address1;
         $payor->Address2 = $request->address2;
@@ -355,9 +332,6 @@ class PayorsController extends Controller
         }
 
         $payors_type = $request->type;
-        // if(!empty($request->same_as) && $request->same_as == 'on') {
-        //     $payors_type = 'Both';
-        // }
 
         $payor = new Payors();
 
@@ -443,19 +417,8 @@ class PayorsController extends Controller
 
     public function check_payor_email(Request $request)
     {
-        $category = $request->category ?? 'RP';
         $validator = Validator::make($request->all(), [
-            'email' => [
-                'required',
-                'email',
-                Rule::unique('Entities')
-                    ->where(function ($query) use ($category) {
-                        return $query->where('category', $category)
-                            ->where('Type', 'Payor')
-                            ->where('UserID', Auth::id());
-                    })
-                    ->ignore($request->id, 'EntityID')
-            ],
+            'email' => ['nullable', 'email'],
         ]);
 
         if ($validator->fails()) {
@@ -467,20 +430,10 @@ class PayorsController extends Controller
 
     public function add_payor(Request $request)
     {
-        $category = $request->category;
         $validator = Validator::make($request->all(), [
             'name' => 'required',
-            'email' => [
-                'required',
-                'email',
-                Rule::unique('Entities')
-                    ->where(function ($query) use ($request, $category) {
-                        return $query->where('category', $category)
-                            ->where('Type', 'Payor')
-                            ->where('UserID', Auth::id());
-                    })
-                    ->ignore($request->id, 'EntityID')
-            ],
+            'account_nickname' => 'nullable|string|max:255',
+            'email' => 'nullable|email',
             'address1' => 'required',
             'city' => 'required',
             'state' => 'required',
@@ -494,13 +447,13 @@ class PayorsController extends Controller
             return response()->json(['errors' => $validator->errors()]);
         }
 
-        // Create a new Payee entry (optional)
         if (!empty($request->id)) {
             $payor = Payors::find($request->id);
         } else {
             $payor = new Payors();
         }
         $payor->Name = $request->name;
+        $payor->AccountNickname = $request->account_nickname;
         $payor->UserID = Auth::id();
         $payor->Address1 = $request->address1;
         $payor->Address2 = $request->address2;
@@ -517,30 +470,19 @@ class PayorsController extends Controller
 
         $payor->save();
 
-        // Return success message
         return response()->json(['success' => true, 'payor' => $payor]);
     }
 
     public function add_payee(Request $request)
     {
-        $rules = [
-            'email' => [
-                'nullable',
-                'email',
-            ],
-            'name' => ['required'],
-        ];
-        $category = $request->category;
+        $category = $request->category ?? 'RP';
 
-        if (empty($request->email)) {
-            $rules['name'][] = Rule::unique('Entities', 'Name')->where(function ($query) use ($category) {
-                $query->where('Type', 'Payee')->where('UserID', Auth::id())->where('Category', $category);
-            })->ignore($request->id, 'EntityID');
-        } else {
-            $rules['email'][] = Rule::unique('Entities', 'Email')->where(function ($query) use ($category) {
-                $query->where('Type', 'Payee')->where('UserID', Auth::id())->where('Category', $category);
-            })->ignore($request->id, 'EntityID');
-        }
+        $rules = [
+            'name' => ['required'],
+            'email' => $category === 'SP'
+                ? ['required', 'email']
+                : ['nullable', 'email'],
+        ];
 
         $validator = Validator::make($request->all(), $rules);
 
@@ -548,7 +490,6 @@ class PayorsController extends Controller
             return response()->json(['errors' => $validator->errors()]);
         }
 
-        // Create a new Payee entry (optional)
         if (!empty($request->id)) {
             $payor = Payors::find($request->id);
         } else {
@@ -563,7 +504,6 @@ class PayorsController extends Controller
 
         $payor->save();
 
-        // Return success message
         return response()->json(['success' => true, 'payee' => $payor]);
     }
 

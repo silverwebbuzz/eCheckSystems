@@ -49,7 +49,7 @@
                             </div>
                         </div>
                         <div class="row mb-6">
-                            <label class="col-sm-2 col-form-label" for="email">Email</label>
+                            <label class="col-sm-2 col-form-label" for="email">Email (optional)</label>
                             <div class="col-sm-10">
                                 <input type="text" name="email" id="email" class="form-control"
                                     value="{{ $payor->Email }}" />
