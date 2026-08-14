@@ -1010,8 +1010,8 @@
                             class="form-control" readonly value="{{ $checkNumber }}">
                     </div>
                     <div class="col-sm-3">
-                        <input type="number" id="routing_number" name="routing_number" class="form-control"
-                            placeholder="Routing Number" readonly
+                        <input type="text" inputmode="numeric" id="routing_number" name="routing_number" class="form-control"
+                            placeholder="Routing Number" maxlength="9" readonly
                             value="{{ !empty($old_payor->RoutingNumber) && $old_payor->RoutingNumber ? $old_payor->RoutingNumber : old('routing_number') }}">
                     </div>
                     <div class="col-sm-3">

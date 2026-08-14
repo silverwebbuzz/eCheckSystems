@@ -1365,7 +1365,7 @@ class CheckController extends Controller
                 'state' => 'required',
                 'zip' => 'required',
                 'bank_name' => 'required',
-                'routing_number' => 'required',
+                'routing_number' => Helpers::routingNumberRules(),
                 'account_number' => 'required',
                 'account_number_verify' => 'required|same:account_number',
             ]);
@@ -1393,7 +1393,7 @@ class CheckController extends Controller
                 'Zip' => $request->zip,
                 'UserID' => $payee->UserID,
                 'BankName' => $request->bank_name,
-                'RoutingNumber' => $request->routing_number,
+                'RoutingNumber' => Helpers::normalizeRoutingNumber($request->routing_number),
                 'AccountNumber' => $request->account_number_verify,
                 'Type' => 'Payor',
                 'Category' => 'RP',
