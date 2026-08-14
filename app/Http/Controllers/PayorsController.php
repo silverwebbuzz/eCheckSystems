@@ -11,6 +11,7 @@ use App\Models\Payors;
 use Carbon\Carbon;
 use Illuminate\Validation\Rule;
 use App\Models\User;
+use App\Helpers\Helpers;
 
 class PayorsController extends Controller
 {
@@ -214,7 +215,7 @@ class PayorsController extends Controller
             'state' => 'required',
             'zip' => 'required',
             'bank_name' => 'required',
-            'routing_number' => 'required|digits:9',
+            'routing_number' => Helpers::routingNumberRules(),
             'account_number' => 'required|numeric',
             'status' => 'required',
             'category' => 'required',
@@ -240,7 +241,7 @@ class PayorsController extends Controller
         $payor->Zip = $request->zip;
         $payor->Email = $request->email;
         $payor->BankName = $request->bank_name;
-        $payor->RoutingNumber = $request->routing_number;
+        $payor->RoutingNumber = Helpers::normalizeRoutingNumber($request->routing_number);
         $payor->AccountNumber = $request->account_number;
         $payor->Status = $request->status;
         $payor->Category = $request->category;
@@ -285,7 +286,7 @@ class PayorsController extends Controller
             'zip' => 'required',
             'bank_name' => 'required',
             'phone_number' => 'nullable|regex:/^\d{3}-\d{3}-\d{4}$/',
-            'routing_number' => 'required|digits:9',
+            'routing_number' => Helpers::routingNumberRules(),
             'account_number' => 'required|numeric',
             'status' => 'required',
             'category' => 'required',
@@ -312,7 +313,7 @@ class PayorsController extends Controller
         $payor->PhoneNumber = preg_replace('/\D/', '', $request->phone_number);
         $payor->Email = $request->email;
         $payor->BankName = $request->bank_name;
-        $payor->RoutingNumber = $request->routing_number;
+        $payor->RoutingNumber = Helpers::normalizeRoutingNumber($request->routing_number);
         $payor->AccountNumber = $request->account_number;
         $payor->Type = $payors_type;
         $payor->Status = $request->status;
@@ -370,7 +371,7 @@ class PayorsController extends Controller
         $payor->Zip = $request->zip;
         $payor->Email = $request->email;
         $payor->BankName = $request->bank_name;
-        $payor->RoutingNumber = $request->routing_number;
+        $payor->RoutingNumber = Helpers::normalizeRoutingNumber($request->routing_number);
         $payor->AccountNumber = $request->account_number;
         $payor->Status = $request->status;
         $payor->Type = $payors_type;
@@ -420,7 +421,7 @@ class PayorsController extends Controller
         $payor->Zip = $request->zip;
         $payor->Email = $request->email;
         $payor->BankName = $request->bank_name;
-        $payor->RoutingNumber = $request->routing_number;
+        $payor->RoutingNumber = Helpers::normalizeRoutingNumber($request->routing_number);
         $payor->AccountNumber = $request->account_number;
         $payor->Type = $payors_type;
         $payor->Status = $request->status;
@@ -486,7 +487,7 @@ class PayorsController extends Controller
             'state' => 'required',
             'zip' => 'required',
             'bank_name' => 'required',
-            'routing_number' => 'required|digits:9',
+            'routing_number' => Helpers::routingNumberRules(),
             'account_number' => 'required|numeric',
         ]);
 
@@ -509,7 +510,7 @@ class PayorsController extends Controller
         $payor->Zip = $request->zip;
         $payor->Email = $request->email;
         $payor->BankName = $request->bank_name;
-        $payor->RoutingNumber = $request->routing_number;
+        $payor->RoutingNumber = Helpers::normalizeRoutingNumber($request->routing_number);
         $payor->AccountNumber = $request->account_number;
         $payor->Status = 'Active';
         $payor->Type = $request->type;

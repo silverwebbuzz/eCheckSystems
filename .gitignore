@@ -117,6 +117,7 @@ Homestead.yaml
 
 # Backups & dumps (often contain PII / DB data)
 *.sql
+achchecks_app*.sql
 *.sql.gz
 *.sqlite
 *.sqlite3
@@ -124,6 +125,10 @@ Homestead.yaml
 *.bak
 *.backup
 *.dump
+
+# Local project docs & knowledge graph (do not commit)
+/documentation/
+/graphify-out/
 
 # Package managers / lockfile notes
 # Keep composer.lock and package-lock.json / yarn.lock / pnpm-lock.yaml

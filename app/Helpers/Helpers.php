@@ -261,4 +261,29 @@ class Helpers
       'total' => $total
     ];
   }
+
+  public static function normalizeRoutingNumber(?string $value): ?string
+  {
+    if ($value === null || trim($value) === '') {
+      return null;
+    }
+
+    $digits = preg_replace('/\D/', '', $value);
+    if ($digits === '') {
+      return null;
+    }
+
+    if (strlen($digits) === 8) {
+      return str_pad($digits, 9, '0', STR_PAD_LEFT);
+    }
+
+    return $digits;
+  }
+
+  public static function routingNumberRules(bool $required = true): array
+  {
+    $rule = $required ? 'required' : 'nullable';
+
+    return [$rule, 'digits_between:8,9'];
+  }
 }
