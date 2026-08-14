@@ -19,6 +19,7 @@ class Payors extends Model
         'EntityID',
         'UserID',
         'Name',
+        'AccountNickname',
         'Address1',
         'Address2',
         'City',

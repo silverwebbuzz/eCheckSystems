@@ -486,6 +486,17 @@ class CheckController extends Controller
             return redirect()->back()->withErrors($validator)->withInput();
         }
 
+        $payee = Payors::where('EntityID', $request->payee)
+            ->where('UserID', Auth::id())
+            ->where('Type', 'Payee')
+            ->first();
+
+        if (!$payee || empty(trim((string) $payee->Email))) {
+            return redirect()->back()
+                ->withErrors(['payee' => 'Selected payee must have an email address for send payment checks.'])
+                ->withInput();
+        }
+
 
         // if(!empty($request->signed)) {
         //     $folderPath = public_path('sign/');
