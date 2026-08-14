@@ -258,6 +258,7 @@
                     $('#payorModel').modal('show');
                     $('#payor_id').val('');
                     $('#add-payor #name').val('');
+                    $('#add-payor #account_nickname').val('');
                     $('#add-payor #email').val('');
                     $('#add-payor #address1').val('');
                     $('#add-payor #city').val('');
@@ -288,6 +289,7 @@
                             $('#confirm_account_number').val(response.payor.AccountNumber);
 
                             $('#add-payor #name').val(response.payor.Name);
+                            $('#add-payor #account_nickname').val(response.payor.AccountNickname);
                             $('#add-payor #email').val(response.payor.Email);
                             $('#add-payor #address').val(response.payor.Address1);
                             $('#add-payor #city').val(response.payor.City);
@@ -301,74 +303,15 @@
                 }
             });
 
-            var payorEmailCheckXhr = null;
-
-            function clearPayorEmailError() {
-                $('#add-payor #email').closest('.col-md-6').find('.text-danger').remove();
-            }
-
-            function showPayorEmailError(message) {
-                clearPayorEmailError();
-                if (message) {
-                    $('#add-payor #email').closest('.col-md-6').append(
-                        '<span class="text-danger">' + message + '</span>'
-                    );
-                }
-            }
-
-            function checkPayorEmailUnique() {
-                var email = $.trim($('#add-payor #email').val());
-                clearPayorEmailError();
-
-                if (!email) {
-                    return;
-                }
-
-                if (payorEmailCheckXhr) {
-                    payorEmailCheckXhr.abort();
-                }
-
-                payorEmailCheckXhr = $.ajax({
-                    url: "{{ route('user.check-payor-email') }}",
-                    method: 'POST',
-                    data: {
-                        _token: "{{ csrf_token() }}",
-                        email: email,
-                        category: 'RP',
-                        id: $('#payor_id').val()
-                    },
-                    success: function(response) {
-                        if (response.errors && response.errors.email) {
-                            showPayorEmailError(response.errors.email[0]);
-                        } else {
-                            clearPayorEmailError();
-                        }
-                    }
-                });
-            }
-
-            $('#add-payor #email').on('blur', function() {
-                checkPayorEmailUnique();
-            });
-
-            $('#add-payor #email').on('input', function() {
-                clearPayorEmailError();
-            });
-
             $('#add-payor-btn').on('click', function(event) {
                 event.preventDefault();
                 var id = $('#payor_id').val();
-
-                // Abort live email check so it cannot append a second error after Save
-                if (payorEmailCheckXhr) {
-                    payorEmailCheckXhr.abort();
-                    payorEmailCheckXhr = null;
-                }
 
                 // Collect form data manually
                 let formData = {
                     _token: "{{ csrf_token() }}", // Include CSRF token manually
                     name: $('#add-payor #name').val(),
+                    account_nickname: $('#add-payor #account_nickname').val(),
                     email: $('#add-payor #email').val(),
                     address1: $('#add-payor #address1').val(),
                     city: $('#add-payor #city').val(),
@@ -407,18 +350,16 @@
                             // Success message
 
                             if (id) {
-                                // Format name with email if available
                                 let displayName = response.payor.Name;
-                                if (response.payor.Email && response.payor.Email.trim() !== '') {
-                                    displayName = response.payor.Name + ' (' + response.payor.Email + ')';
+                                if (response.payor.AccountNickname && response.payor.AccountNickname.trim() !== '') {
+                                    displayName = response.payor.Name + ' (' + response.payor.AccountNickname + ')';
                                 }
                                 $('#payor option:selected').text(displayName);
                                 $('#payor').trigger('change.select2');
                             } else {
-                                // Format name with email if available
                                 let displayName = response.payor.Name;
-                                if (response.payor.Email && response.payor.Email.trim() !== '') {
-                                    displayName = response.payor.Name + ' (' + response.payor.Email + ')';
+                                if (response.payor.AccountNickname && response.payor.AccountNickname.trim() !== '') {
+                                    displayName = response.payor.Name + ' (' + response.payor.AccountNickname + ')';
                                 }
                                 let newOption =
                                     `<option value="${response.payor.EntityID}" selected>${displayName}</option>`;
@@ -445,6 +386,7 @@
 
                             $('#payor_id').val(response.payor.EntityID);
                             $('#add-payor #name').val(response.payor.Name);
+                            $('#add-payor #account_nickname').val(response.payor.AccountNickname);
                             $('#add-payor #email').val(response.payor.Email);
                             $('#add-payor #address').val(response.payor.Address1);
                             $('#add-payor #city').val(response.payor.City);
@@ -611,10 +553,9 @@
                                             <option value="add_new_payor" id="add_other_payor" style="font-weight: bold;">Add New Payors</option>
                                             @foreach ($payors as $payor)
                                                 @php
-                                                    if (!empty($payor->Email)) {
-                                                        $name = $payor->Name . ' (' . $payor->Email . ')';
-                                                    } else {
-                                                        $name = $payor->Name;
+                                                    $name = $payor->Name;
+                                                    if (!empty($payor->AccountNickname)) {
+                                                        $name = $payor->Name . ' (' . $payor->AccountNickname . ')';
                                                     }
                                                 @endphp
                                                 <option value="{{ $payor->EntityID }}"
@@ -840,7 +781,17 @@
                                         @endif
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label" for="email">Email</label>
+                                        <label class="form-label" for="account_nickname">Account nickname</label>
+                                        <input type="text" name="account_nickname" id="account_nickname" class="form-control"
+                                            value="{{ !empty($old_payor->AccountNickname) ? $old_payor->AccountNickname : old('account_nickname') }}" />
+                                        @if ($errors->has('account_nickname'))
+                                            <span class="text-danger">
+                                                {{ $errors->first('account_nickname') }}
+                                            </span>
+                                        @endif
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label" for="email">Email (optional)</label>
                                         <input type="text" name="email" id="email" class="form-control"
                                             value="{{ !empty($old_payor->Email) ? $old_payor->Email : old('email') }}" />
                                         @if ($errors->has('email'))

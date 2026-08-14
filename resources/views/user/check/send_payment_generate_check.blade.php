@@ -362,11 +362,19 @@
                 event.preventDefault();
                 var id = $('#payee_id').val();
 
+                $('#payee-email-error').text('');
+
+                var payeeEmail = $.trim($('#payee-email').val());
+                if (!payeeEmail) {
+                    $('#payee-email-error').text('Email is required for send payment payees.');
+                    return;
+                }
+
                 // Collect form data manually
                 let formData = {
-                    _token: "{{ csrf_token() }}", // Include CSRF token manually
+                    _token: "{{ csrf_token() }}",
                     name: $('#payee-name').val(),
-                    email: $('#payee-email').val(),
+                    email: payeeEmail,
                     type: 'Payee',
                     category: 'SP',
                     id: id
@@ -383,14 +391,14 @@
                     data: formData,
                     success: function(response) {
                         if (response.errors) {
-                            // Display validation errors
                             $.each(response.errors, function(key, value) {
-                                console.log('#add-payee #' + key);
-
-                                $('#payee-' + key).closest('.col-md-6').append(
-                                    '<span class="text-danger">' + value[0] +
-                                    '</span>'
-                                );
+                                if (key === 'email') {
+                                    $('#payee-email-error').text(value[0]);
+                                } else {
+                                    $('#payee-' + key).closest('.col-md-6').append(
+                                        '<span class="text-danger">' + value[0] + '</span>'
+                                    );
+                                }
                             });
                         } else if (response.success) {
                             $('#payeeModel').modal('hide');
@@ -448,6 +456,7 @@
                     $('#payorModel').modal('show');
                     $('#payor_id').val('');
                     $('#add-payor #name').val('');
+                    $('#add-payor #account_nickname').val('');
                     $('#add-payor #email').val('');
                     $('#add-payor #address1').val('');
                     $('#add-payor #city').val('');
@@ -476,6 +485,7 @@
                             $('#confirm_account_number').val(response.payor.AccountNumber);
 
                             $('#add-payor #name').val(response.payor.Name);
+                            $('#add-payor #account_nickname').val(response.payor.AccountNickname);
                             $('#add-payor #email').val(response.payor.Email);
                             $('#add-payor #address1').val(response.payor.Address1);
                             $('#add-payor #city').val(response.payor.City);
@@ -497,6 +507,7 @@
                 let formData = {
                     _token: "{{ csrf_token() }}", // Include CSRF token manually
                     name: $('#add-payor #name').val(),
+                    account_nickname: $('#add-payor #account_nickname').val(),
                     email: $('#add-payor #email').val(),
                     address1: $('#add-payor #address1').val(),
                     city: $('#add-payor #city').val(),
@@ -533,18 +544,16 @@
                             // Success message
 
                             if (id) {
-                                // Format name with email if available
                                 let displayName = response.payor.Name;
-                                if (response.payor.Email && response.payor.Email.trim() !== '') {
-                                    displayName = response.payor.Name + ' (' + response.payor.Email + ')';
+                                if (response.payor.AccountNickname && response.payor.AccountNickname.trim() !== '') {
+                                    displayName = response.payor.Name + ' (' + response.payor.AccountNickname + ')';
                                 }
                                 $('#payor option:selected').text(displayName);
                                 $('#payor').trigger('change.select2');
                             } else {
-                                // Format name with email if available
                                 let displayName = response.payor.Name;
-                                if (response.payor.Email && response.payor.Email.trim() !== '') {
-                                    displayName = response.payor.Name + ' (' + response.payor.Email + ')';
+                                if (response.payor.AccountNickname && response.payor.AccountNickname.trim() !== '') {
+                                    displayName = response.payor.Name + ' (' + response.payor.AccountNickname + ')';
                                 }
                                 let newOption =
                                     `<option value="${response.payor.EntityID}" selected>${displayName}</option>`;
@@ -571,6 +580,7 @@
 
                             $('#payor_id').val(response.payor.EntityID);
                             $('#add-payor #name').val(response.payor.Name);
+                            $('#add-payor #account_nickname').val(response.payor.AccountNickname);
                             $('#add-payor #email').val(response.payor.Email);
                             $('#add-payor #address1').val(response.payor.Address1);
                             $('#add-payor #city').val(response.payor.City);
@@ -928,10 +938,9 @@
                                             <option value="add_new_payor" id="add_other_payor" style="font-weight: bold;">Add New Payors</option>
                                             @foreach ($payors as $payor)
                                                 @php
-                                                    if (!empty($payor->Email)) {
-                                                        $name = $payor->Name . ' (' . $payor->Email . ')';
-                                                    } else {
-                                                        $name = $payor->Name;
+                                                    $name = $payor->Name;
+                                                    if (!empty($payor->AccountNickname)) {
+                                                        $name = $payor->Name . ' (' . $payor->AccountNickname . ')';
                                                     }
                                                 @endphp
                                                 <option value="{{ $payor->EntityID }}"
@@ -1216,7 +1225,17 @@
                                         @endif
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label" for="email">Email</label>
+                                        <label class="form-label" for="account_nickname">Account nickname</label>
+                                        <input type="text" name="account_nickname" id="account_nickname" class="form-control"
+                                            value="{{ !empty($old_payor->AccountNickname) ? $old_payor->AccountNickname : old('account_nickname') }}" />
+                                        @if ($errors->has('account_nickname'))
+                                            <span class="text-danger">
+                                                {{ $errors->first('account_nickname') }}
+                                            </span>
+                                        @endif
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label" for="email">Email (optional)</label>
                                         <input type="text" name="email" id="email" class="form-control"
                                             value="{{ !empty($old_payor->Email) ? $old_payor->Email : old('email') }}" />
                                         @if ($errors->has('email'))
@@ -1391,14 +1410,10 @@
                                         @endif
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label" for="payee-email">Email</label>
+                                        <label class="form-label" for="payee-email">Email <span class="text-danger">*</span></label>
                                         <input type="text" name="payee-email" id="payee-email" class="form-control"
-                                            value="{{ !empty($old_payee->Email) ? $old_payee->Email : old('email') }}" />
-                                        @if ($errors->has('payee-email'))
-                                            <span class="text-danger">
-                                                {{ $errors->first('payee-email') }}
-                                            </span>
-                                        @endif
+                                            value="{{ !empty($old_payee->Email) ? $old_payee->Email : old('email') }}" required />
+                                        <span id="payee-email-error" class="text-danger"></span>
                                     </div>
                                 </div>
                                 <input type="hidden" name="type" id="type" value="Payee" />
