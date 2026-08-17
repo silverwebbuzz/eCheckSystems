@@ -16,6 +16,12 @@ use QuickBooksOnline\API\Facades\Purchase;
 
 class QuickBooksService
 {
+    /** @var array<string, string> */
+    protected array $accountNameCache = [];
+
+    /** @var array<string, string> */
+    protected array $accountTypeCache = [];
+
     public function configureDataService(?string $accessToken = null, ?string $refreshToken = null, ?string $realmId = null): DataService
     {
         $config = [
@@ -119,24 +125,26 @@ class QuickBooksService
     }
 
     /**
-     * Sync all QBO Checks (Purchase PaymentType=Check) into local Checks.
+     * Sync QBO Checks only (Purchase PaymentType=Check). Cash / credit-card purchases are skipped.
+     * QBO query often ignores PaymentType filters, so we always verify in PHP.
      */
     public function syncChecksFromQbo(QBOCompany $qboCompany, int $userId): array
     {
         $dataService = $this->dataServiceForCompany($qboCompany);
         $imported = 0;
         $updated = 0;
+        $skipped = 0;
         $warnings = [];
 
         $start = 1;
         $pageSize = 100;
 
         do {
-            $query = "SELECT * FROM Purchase WHERE PaymentType = 'Check' STARTPOSITION {$start} MAXRESULTS {$pageSize}";
+            $query = "SELECT * FROM Purchase STARTPOSITION {$start} MAXRESULTS {$pageSize}";
             $purchases = $dataService->Query($query);
 
             if ($error = $dataService->getLastError()) {
-                throw new Exception($error->getResponseBody() ?: 'Failed to query QBO checks');
+                throw new Exception($error->getResponseBody() ?: 'Failed to query QBO purchases');
             }
 
             if (!$purchases) {
@@ -144,6 +152,11 @@ class QuickBooksService
             }
 
             foreach ($purchases as $purchase) {
+                if (!$this->isCheckPurchase($purchase, $dataService)) {
+                    $skipped++;
+                    continue;
+                }
+
                 $result = $this->upsertLocalCheckFromQboPurchase($purchase, $qboCompany, $userId, $dataService);
                 if ($result['created']) {
                     $imported++;
@@ -168,18 +181,103 @@ class QuickBooksService
             'action' => 'sync_checks',
             'status' => 'success',
             'records' => $imported + $updated,
-            'message' => "Imported {$imported}, updated {$updated}",
+            'message' => "Imported {$imported}, updated {$updated}, skipped {$skipped} non-check purchases",
         ]);
 
         return [
             'imported' => $imported,
             'updated' => $updated,
+            'skipped' => $skipped,
             'warnings' => $warnings,
         ];
     }
 
+    /**
+     * Only printable bank checks: PaymentType=Check, paid from a Bank account.
+     * Skips Credit Card Expense, Cash, and bank Debit/ACH recorded as Check.
+     */
+    protected function isCheckPurchase($purchase, ?DataService $dataService = null): bool
+    {
+        $type = $purchase->PaymentType ?? '';
+        if (is_object($type)) {
+            $type = $type->value ?? $type->name ?? (string) $type;
+            }
+            if (strcasecmp(trim((string) $type), 'Check') !== 0) {
+                return false;
+                }
+                dump($type);
+
+        $doc = trim((string) ($purchase->DocNumber ?? ''));
+        $printStatus = (string) ($purchase->PrintStatus ?? '');
+        $printLater = in_array($printStatus, ['NeedToPrint', 'Pending'], true);
+        if ($doc === '') {
+            if (!$printLater) {
+                return false;
+            }
+        } elseif (!preg_match('/^\d+$/', $doc)) {
+            return false;
+        }
+
+        if ($dataService) {
+            $accountRef = $this->parseQboRef($purchase->AccountRef ?? null);
+            if (!empty($accountRef['id']) && !$this->isBankAccount($dataService, $accountRef['id'])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    protected function isBankAccount(DataService $dataService, string $accountId): bool
+    {
+        if (isset($this->accountTypeCache[$accountId])) {
+            return $this->accountTypeCache[$accountId] === 'bank';
+        }
+
+        try {
+            $account = $dataService->FindById('Account', $accountId);
+            $type = strtolower((string) ($account->AccountType ?? ''));
+            $this->accountTypeCache[$accountId] = $type;
+
+            return $type === 'bank';
+        } catch (\Throwable $e) {
+            Log::warning('QBO account type resolve failed: ' . $e->getMessage(), ['account_id' => $accountId]);
+            $this->accountTypeCache[$accountId] = '';
+
+            return false;
+        }
+    }
+
+    /**
+     * Drop a previously imported non-check (e.g. credit card expense) if it is still a draft import.
+     */
+    protected function removeNonCheckImport($purchase, int $userId): void
+    {
+        $qboId = (string) ($purchase->Id ?? '');
+        if ($qboId === '') {
+            return;
+        }
+
+        $check = Checks::where('UserID', $userId)
+            ->where('qbo_id', $qboId)
+            ->where('Status', 'imported_from_qbo')
+            ->first();
+
+        if (!$check) {
+            return;
+        }
+
+        CheckLineItem::where('CheckID', $check->CheckID)->delete();
+        $check->delete();
+    }
+
     protected function upsertLocalCheckFromQboPurchase($purchase, QBOCompany $qboCompany, int $userId, DataService $dataService): array
     {
+        if (!$this->isCheckPurchase($purchase, $dataService)) {
+            
+            return ['created' => false, 'warning' => null, 'skipped' => true];
+        }
+
         $qboId = (string) ($purchase->Id ?? '');
         $docNumber = (string) ($purchase->DocNumber ?? '');
         $amount = (float) ($purchase->TotalAmt ?? 0);
@@ -237,7 +335,7 @@ class QuickBooksService
             $created = true;
         }
 
-        $this->syncLineItemsFromPurchase($check, $purchase);
+        $this->syncLineItemsFromPurchase($check, $purchase, $dataService);
 
         return [
             'created' => $created,
@@ -245,46 +343,127 @@ class QuickBooksService
         ];
     }
 
-    protected function resolveOrCreatePayee($purchase, int $userId, DataService $dataService): ?int
+    /**
+     * QBO SDK often returns refs as plain id strings; sometimes as IPPReferenceType objects.
+     *
+     * @param mixed $ref
+     * @return array{id: ?string, name: ?string, type: ?string}
+     */
+    protected function parseQboRef($ref): array
     {
-        $entityRef = $purchase->EntityRef ?? null;
-        if (!$entityRef) {
-            return null;
+        if ($ref === null || $ref === '') {
+            return ['id' => null, 'name' => null, 'type' => null];
         }
 
-        $vendorId = is_object($entityRef) ? ($entityRef->value ?? null) : null;
-        $vendorName = is_object($entityRef) ? ($entityRef->name ?? null) : null;
+        if (is_string($ref) || is_int($ref) || is_float($ref)) {
+            return ['id' => (string) $ref, 'name' => null, 'type' => null];
+        }
+
+        if (is_array($ref)) {
+            $id = $ref['value'] ?? $ref['Value'] ?? $ref['id'] ?? null;
+            $name = $ref['name'] ?? $ref['Name'] ?? null;
+            $type = $ref['type'] ?? $ref['Type'] ?? null;
+
+            return [
+                'id' => $id !== null && $id !== '' ? (string) $id : null,
+                'name' => $name !== null && $name !== '' ? (string) $name : null,
+                'type' => $type !== null && $type !== '' ? (string) $type : null,
+            ];
+        }
+
+        if (is_object($ref)) {
+            $id = $ref->value ?? $ref->Value ?? null;
+            $name = $ref->name ?? $ref->Name ?? null;
+            $type = $ref->type ?? $ref->Type ?? null;
+
+            if (($id === null || $id === '') && method_exists($ref, '__toString')) {
+                $asString = trim((string) $ref);
+                if ($asString !== '' && $asString !== 'Object') {
+                    $id = $asString;
+                }
+            }
+
+            return [
+                'id' => $id !== null && $id !== '' ? (string) $id : null,
+                'name' => $name !== null && $name !== '' ? (string) $name : null,
+                'type' => $type !== null && $type !== '' ? (string) $type : null,
+            ];
+        }
+
+        return ['id' => null, 'name' => null, 'type' => null];
+    }
+
+    protected function resolveOrCreatePayee($purchase, int $userId, DataService $dataService): ?int
+    {
+        $parsed = $this->parseQboRef($purchase->EntityRef ?? null);
+        $entityId = $parsed['id'];
+        $entityName = $parsed['name'];
+        $entityType = strtolower((string) ($parsed['type'] ?: 'vendor'));
         $email = null;
         $address1 = null;
         $city = null;
         $state = null;
         $zip = null;
 
-        if ($vendorId) {
-            try {
-                $vendor = $dataService->FindById('Vendor', $vendorId);
-                if ($vendor) {
-                    $vendorName = $vendor->DisplayName ?? $vendorName;
-                    $email = $vendor->PrimaryEmailAddr->Address ?? null;
-                    $addr = $vendor->BillAddr ?? null;
-                    if ($addr) {
-                        $address1 = $addr->Line1 ?? null;
-                        $city = $addr->City ?? null;
-                        $state = $addr->CountrySubDivisionCode ?? null;
-                        $zip = $addr->PostalCode ?? null;
+        if (!$entityId && !$entityName) {
+            return null;
+        }
+
+        if ($entityId) {
+            $lookupTypes = array_values(array_unique(array_filter([
+                $entityType ?: null,
+                'vendor',
+                'customer',
+                'employee',
+            ])));
+
+            foreach ($lookupTypes as $type) {
+                $apiEntity = match ($type) {
+                    'customer' => 'Customer',
+                    'employee' => 'Employee',
+                    default => 'Vendor',
+                };
+
+                try {
+                    $remote = $dataService->FindById($apiEntity, $entityId);
+                    if ($remote) {
+                        $resolved = $remote->DisplayName
+                            ?? $remote->FullyQualifiedName
+                            ?? trim((string) (($remote->GivenName ?? '') . ' ' . ($remote->FamilyName ?? '')));
+                        if (is_string($resolved) && trim($resolved) !== '') {
+                            $entityName = trim($resolved);
+                        }
+
+                        $emailAddr = $remote->PrimaryEmailAddr ?? null;
+                        if (is_object($emailAddr) && !empty($emailAddr->Address)) {
+                            $email = (string) $emailAddr->Address;
+                        }
+
+                        $addr = $remote->BillAddr ?? $remote->PrimaryAddr ?? null;
+                        if (is_object($addr)) {
+                            $address1 = $addr->Line1 ?? $address1;
+                            $city = $addr->City ?? $city;
+                            $state = $addr->CountrySubDivisionCode ?? $state;
+                            $zip = $addr->PostalCode ?? $zip;
+                        }
+                        break;
                     }
+                } catch (\Throwable $e) {
+                    Log::warning("QBO {$apiEntity} fetch failed: " . $e->getMessage());
                 }
-            } catch (\Throwable $e) {
-                Log::warning('QBO vendor fetch failed: ' . $e->getMessage());
             }
         }
 
-        if (!$vendorName) {
+        if (!$entityName && $entityId) {
+            $entityName = 'QBO Payee #' . $entityId;
+        }
+
+        if (!$entityName) {
             return null;
         }
 
         $query = Payors::where('UserID', $userId)->where('Type', 'Payee');
-        $payee = (clone $query)->where('Name', $vendorName)->first();
+        $payee = (clone $query)->where('Name', $entityName)->first();
 
         if (!$payee && $email) {
             $payee = (clone $query)->where('Email', $email)->first();
@@ -297,6 +476,8 @@ class QuickBooksService
                 'City' => $city ?: $payee->City,
                 'State' => $state ?: $payee->State,
                 'Zip' => $zip ?: $payee->Zip,
+                'Category' => $payee->Category ?: 'SP',
+                'Status' => $payee->Status ?: 'Active',
             ], fn ($v) => $v !== null && $v !== ''));
 
             return $payee->EntityID;
@@ -304,8 +485,9 @@ class QuickBooksService
 
         $payee = Payors::create([
             'UserID' => $userId,
-            'Name' => $vendorName,
+            'Name' => $entityName,
             'Type' => 'Payee',
+            'Category' => 'SP',
             'Email' => $email,
             'Address1' => $address1,
             'City' => $city,
@@ -319,7 +501,7 @@ class QuickBooksService
         return $payee->EntityID;
     }
 
-    protected function syncLineItemsFromPurchase(Checks $check, $purchase): void
+    protected function syncLineItemsFromPurchase(Checks $check, $purchase, DataService $dataService): void
     {
         CheckLineItem::where('CheckID', $check->CheckID)->where('source', 'qbo')->delete();
 
@@ -330,27 +512,75 @@ class QuickBooksService
 
         $lineNo = 1;
         foreach ($lines as $line) {
-            $detail = $line->AccountBasedExpenseLineDetail ?? null;
-            if (!$detail && empty($line->Amount)) {
+            $detailType = (string) ($line->DetailType ?? '');
+            if ($detailType === 'SubTotalLineDetail') {
                 continue;
             }
 
-            $accountRef = $detail->AccountRef ?? null;
+            $accountDetail = $line->AccountBasedExpenseLineDetail ?? null;
+            $itemDetail = $line->ItemBasedExpenseLineDetail ?? null;
+
+            if (!$accountDetail && !$itemDetail) {
+                continue;
+            }
+
+            $accountRef = $this->parseQboRef($accountDetail?->AccountRef ?? null);
+            $itemRef = $this->parseQboRef($itemDetail?->ItemRef ?? null);
+
+            $accountId = $accountRef['id'] ?? null;
+            $accountName = $accountRef['name'] ?? '';
+
+            if ($accountId && $accountName === '') {
+                $accountName = $this->resolveAccountName($dataService, $accountId);
+            }
+
+            if ($accountName === '' && !empty($itemRef['name'])) {
+                $accountName = $itemRef['name'];
+            }
+            if (!$accountId && !empty($itemRef['id'])) {
+                $accountId = $itemRef['id'];
+            }
+
+            $detail = $accountDetail ?: $itemDetail;
+            $customerRef = $this->parseQboRef($detail->CustomerRef ?? null);
 
             CheckLineItem::create([
                 'CheckID' => $check->CheckID,
                 'line_no' => $lineNo++,
                 'qbo_line_id' => isset($line->Id) ? (string) $line->Id : null,
-                'qbo_account_id' => is_object($accountRef) ? (string) ($accountRef->value ?? '') : null,
-                'account_name' => is_object($accountRef) ? (string) ($accountRef->name ?? '') : null,
+                'qbo_account_id' => $accountId ?: null,
+                'account_name' => $accountName !== '' ? $accountName : null,
                 'description' => (string) ($line->Description ?? ''),
                 'amount' => (float) ($line->Amount ?? 0),
                 'billable' => isset($detail->BillableStatus) && $detail->BillableStatus === 'Billable',
                 'tax' => false,
-                'customer_name' => isset($detail->CustomerRef) ? (string) ($detail->CustomerRef->name ?? '') : null,
-                'customer_ref' => isset($detail->CustomerRef) ? (string) ($detail->CustomerRef->value ?? '') : null,
+                'customer_name' => $customerRef['name'] ?? null,
+                'customer_ref' => $customerRef['id'] ?? null,
                 'source' => 'qbo',
             ]);
+        }
+    }
+
+    protected function resolveAccountName(DataService $dataService, string $accountId): string
+    {
+        if (isset($this->accountNameCache[$accountId])) {
+            return $this->accountNameCache[$accountId];
+        }
+
+        try {
+            $account = $dataService->FindById('Account', $accountId);
+            $name = '';
+            if ($account) {
+                $name = (string) ($account->FullyQualifiedName ?? $account->Name ?? '');
+            }
+            $this->accountNameCache[$accountId] = $name;
+
+            return $name;
+        } catch (\Throwable $e) {
+            Log::warning('QBO account name resolve failed: ' . $e->getMessage(), ['account_id' => $accountId]);
+            $this->accountNameCache[$accountId] = '';
+
+            return '';
         }
     }
 
@@ -559,13 +789,14 @@ class QuickBooksService
     }
 
     /**
-     * Process Intuit webhook JSON (after signature verified).
-     * Webhooks only notify — we fetch the single Purchase when needed.
+     * Parse Intuit webhook JSON into Purchase events for inbound queue jobs.
+     * Webhooks only notify — each event is fetched later by ImportQuickBooksCheckJob.
+     *
+     * @return array<int, array{realmId: string, id: string, operation: string}>
      */
-    public function processWebhookPayload(array $payload): array
+    public function extractWebhookPurchaseEvents(array $payload): array
     {
-        $handled = 0;
-        $skipped = 0;
+        $events = [];
         $allowed = array_map('strtolower', config('quickbooks.webhook_entities', ['Purchase']));
 
         foreach ($payload['eventNotifications'] ?? [] as $notification) {
@@ -574,44 +805,56 @@ class QuickBooksService
                 continue;
             }
 
-            $qboCompany = QBOCompany::where('realm_id', $realmId)
-                ->where('status', 'connected')
-                ->first();
-
-            if (!$qboCompany) {
-                Log::info('QBO webhook ignored — no connected company for realm', ['realmId' => $realmId]);
-                continue;
-            }
-
-            $entities = $notification['dataChangeEvent']['entities'] ?? [];
-            foreach ($entities as $entity) {
+            foreach ($notification['dataChangeEvent']['entities'] ?? [] as $entity) {
                 $name = (string) ($entity['name'] ?? '');
                 $id = (string) ($entity['id'] ?? '');
                 $operation = strtolower((string) ($entity['operation'] ?? ''));
 
                 if ($id === '' || !in_array(strtolower($name), $allowed, true)) {
-                    $skipped++;
                     continue;
                 }
 
-                if (in_array($operation, ['delete', 'void'], true)) {
-                    $this->deleteLocalCheckByQboId($id, (int) $qboCompany->user_id);
-                    $handled++;
+                if (!in_array($operation, ['create', 'update', 'merge', 'delete', 'void'], true)) {
                     continue;
                 }
 
-                if (in_array($operation, ['create', 'update', 'merge'], true)) {
-                    $result = $this->importPurchaseById($qboCompany, $id);
-                    if ($result['imported']) {
-                        $handled++;
-                    } else {
-                        $skipped++;
-                    }
-                }
+                $events[] = [
+                    'realmId' => $realmId,
+                    'id' => $id,
+                    'operation' => $operation,
+                ];
             }
         }
 
-        return compact('handled', 'skipped');
+        return $events;
+    }
+
+    /**
+     * Import or delete a single QBO Purchase on the inbound queue.
+     */
+    public function processWebhookEntity(string $realmId, string $purchaseId, string $operation): array
+    {
+        $qboCompany = QBOCompany::where('realm_id', $realmId)
+            ->where('status', 'connected')
+            ->first();
+
+        if (!$qboCompany) {
+            Log::info('QBO webhook ignored — no connected company for realm', ['realmId' => $realmId]);
+            return ['imported' => false, 'reason' => 'no_company'];
+        }
+
+        $operation = strtolower($operation);
+
+        if (in_array($operation, ['delete', 'void'], true)) {
+            $this->deleteLocalCheckByQboId($purchaseId, (int) $qboCompany->user_id);
+            return ['imported' => true, 'action' => 'deleted'];
+        }
+
+        if (in_array($operation, ['create', 'update', 'merge'], true)) {
+            return $this->importPurchaseById($qboCompany, $purchaseId);
+        }
+
+        return ['imported' => false, 'reason' => 'unknown_operation'];
     }
 
     /**
@@ -630,8 +873,7 @@ class QuickBooksService
             return ['imported' => false, 'reason' => 'not_found'];
         }
 
-        $paymentType = (string) ($purchase->PaymentType ?? '');
-        if (strcasecmp($paymentType, 'Check') !== 0) {
+        if (!$this->isCheckPurchase($purchase, $dataService)) {
             return ['imported' => false, 'reason' => 'not_a_check'];
         }
 

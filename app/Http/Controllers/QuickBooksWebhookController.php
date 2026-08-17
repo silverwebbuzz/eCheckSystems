@@ -32,8 +32,12 @@ class QuickBooksWebhookController extends Controller
             return response('Invalid JSON', 400);
         }
 
-        // Acknowledge immediately; process on quickbooks queue
+        // Acknowledge immediately; fan-out each Purchase onto qbo-inbound
         ProcessQuickBooksWebhook::dispatch($payload);
+
+        Log::info('QBO webhook queued', [
+            'notifications' => count($payload['eventNotifications'] ?? []),
+        ]);
 
         return response('OK', 200);
     }

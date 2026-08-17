@@ -22,7 +22,7 @@
         <div class="card-header d-flex justify-content-between align-items-center">
             <div>
                 <h5 class="mb-1">QuickBooks Checks</h5>
-                <small class="text-muted">Imported from QuickBooks (draft / imported_from_qbo) and checks linked to QBO.</small>
+                <small class="text-muted">Only QuickBooks <strong>Check</strong> transactions (not credit card or cash expenses).</small>
             </div>
             <div class="d-flex gap-2">
                 <a href="{{ route('qbo.settings') }}" class="btn btn-outline-secondary">Settings</a>

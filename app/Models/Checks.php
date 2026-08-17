@@ -52,7 +52,7 @@ class Checks extends Model
 
     public function payee()
     {
-        return $this->belongsTo(Payors::class, 'PayeeID', 'EntityID');
+        return $this->belongsTo(Payors::class, 'PayeeID', 'EntityID')->withTrashed();
     }
 
     public function payor()

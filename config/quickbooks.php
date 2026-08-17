@@ -11,4 +11,8 @@ return [
     'webhook_verifier_token' => env('QBO_WEBHOOK_VERIFIER_TOKEN'),
     // Checks in QBO are Purchase entities with PaymentType=Check
     'webhook_entities' => ['Purchase'],
+    'queues' => [
+        'inbound' => env('QBO_INBOUND_QUEUE', 'qbo-inbound'),
+        'outgoing' => env('QBO_OUTGOING_QUEUE', 'qbo-outgoing'),
+    ],
 ];

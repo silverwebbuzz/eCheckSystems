@@ -22,7 +22,7 @@ class PushCheckToQuickBooksJob implements ShouldQueue
 
     public function __construct(public int $checkId)
     {
-        $this->onQueue('quickbooks');
+        $this->onQueue(config('quickbooks.queues.outgoing', 'qbo-outgoing'));
     }
 
     public function handle(QuickBooksService $qbo): void

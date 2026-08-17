@@ -25,7 +25,7 @@ class SyncQuickBooksChecksJob implements ShouldQueue
         public int $qboCompanyId,
         public int $userId
     ) {
-        $this->onQueue('quickbooks');
+        $this->onQueue(config('quickbooks.queues.inbound', 'qbo-inbound'));
     }
 
     public function handle(QuickBooksService $qbo): void

@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Models\QBOCompany;
 use App\Services\QuickBooksService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -17,18 +16,28 @@ class ProcessQuickBooksWebhook implements ShouldQueue
 
     public int $tries = 3;
 
-    public int $backoff = 30;
+    public int $backoff = 15;
 
     public function __construct(public array $payload)
     {
-        $this->onQueue('quickbooks');
+        $this->onQueue(config('quickbooks.queues.inbound', 'qbo-inbound'));
     }
 
     public function handle(QuickBooksService $qbo): void
     {
-        $result = $qbo->processWebhookPayload($this->payload);
+        $events = $qbo->extractWebhookPurchaseEvents($this->payload);
 
-        Log::info('QBO webhook processed', $result);
+        foreach ($events as $event) {
+            ImportQuickBooksCheckJob::dispatch(
+                $event['realmId'],
+                $event['id'],
+                $event['operation']
+            );
+        }
+
+        Log::info('QBO webhook queued inbound check jobs', [
+            'count' => count($events),
+        ]);
     }
 
     public function failed(\Throwable $e): void

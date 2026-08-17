@@ -38,7 +38,8 @@
                 · Inbound:
                 <strong>Webhook + queue</strong>
                 <code class="ms-1">POST {{ url('/api/quickbooks/webhook') }}</code>
-                · Queue: <code>quickbooks</code>
+                · Incoming: <code>{{ config('quickbooks.queues.inbound') }}</code>
+                · Outgoing: <code>{{ config('quickbooks.queues.outgoing') }}</code>
                 @if ($active && $active->last_sync_at)
                     · Last sync: {{ $active->last_sync_at->format('m/d/Y H:i') }}
                 @endif

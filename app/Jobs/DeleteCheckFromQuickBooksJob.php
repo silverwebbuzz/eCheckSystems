@@ -24,7 +24,7 @@ class DeleteCheckFromQuickBooksJob implements ShouldQueue
         public int $userId,
         public ?int $qboCompanyId = null
     ) {
-        $this->onQueue('quickbooks');
+        $this->onQueue(config('quickbooks.queues.outgoing', 'qbo-outgoing'));
     }
 
     public function handle(QuickBooksService $qbo): void
