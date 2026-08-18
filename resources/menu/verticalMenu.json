@@ -43,6 +43,13 @@
       "access": "web"
     },
     {
+      "url": "/quickbooks/checks",
+      "name": "QuickBooks Checks",
+      "icon": "menu-icon tf-icons ti ti-building-bank",
+      "slug": "qbo.checks",
+      "access": "web"
+    },
+    {
       "url": "/user/client",
       "name": "Manage Payees (Pay To)",
       "icon": "menu-icon tf-icons ti ti-users",
@@ -71,11 +78,25 @@
       "access": "web"
     },
     {
-      "url": "/setting",
+      "url": "javascript:void(0);",
       "name": "Settings",
       "icon": "menu-icon tf-icons ti ti-settings",
-      "slug": "get_web_forms",
-      "access": "web"
+      "slug": "settings",
+      "access": "web",
+      "submenu": [
+        {
+          "url": "/setting",
+          "name": "Web Forms",
+          "icon": "menu-icon tf-icons ti ti-forms",
+          "slug": "get_web_forms"
+        },
+        {
+          "url": "/settings/quickbooks",
+          "name": "QuickBooks",
+          "icon": "menu-icon tf-icons ti ti-brand-cashapp",
+          "slug": "qbo.settings"
+        }
+      ]
     },
     {
       "url": "/admin/email-template",

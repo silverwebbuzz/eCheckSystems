@@ -36,16 +36,46 @@ class Checks extends Model
         'GridSchemaHistoryID',
         'GridItems',
         'ip_address',
-        'created_at'
+        'created_at',
+        'qbo_id',
+        'qbo_sync_status',
+        'qbo_print_later',
+        'qbo_company_id',
+        'qbo_doc_number',
+        'check_number_conflict',
+    ];
+
+    protected $casts = [
+        'qbo_print_later' => 'boolean',
+        'check_number_conflict' => 'boolean',
     ];
 
     public function payee()
     {
-        return $this->belongsTo(Payors::class, 'PayeeID', 'EntityID');
+        return $this->belongsTo(Payors::class, 'PayeeID', 'EntityID')->withTrashed();
     }
 
     public function payor()
     {
         return $this->belongsTo(Payors::class, 'PayorID', 'EntityID');
+    }
+
+    public function lineItems()
+    {
+        return $this->hasMany(CheckLineItem::class, 'CheckID', 'CheckID')->orderBy('line_no');
+    }
+
+    public function qboCompany()
+    {
+        return $this->belongsTo(QBOCompany::class, 'qbo_company_id', 'id');
+    }
+
+    public function scopeQuickBooks($query)
+    {
+        return $query->where(function ($q) {
+            $q->where('CheckType', 'QuickBooks')
+                ->orWhereNotNull('qbo_id')
+                ->orWhere('Status', 'imported_from_qbo');
+        });
     }
 }

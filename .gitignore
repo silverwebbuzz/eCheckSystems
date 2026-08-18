@@ -125,6 +125,11 @@ achchecks_app*.sql
 *.bak
 *.backup
 *.dump
+achchecks_app*.sql
+
+# Local project docs & knowledge graph (not for git)
+/documentation/
+/graphify-out/
 
 # Local project docs & knowledge graph (do not commit)
 /documentation/

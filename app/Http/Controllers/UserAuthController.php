@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\QBOCompany;
 use App\Services\FraudService;
 use Illuminate\Http\Request;
 use App\Models\User;
@@ -119,9 +118,8 @@ class UserAuthController extends Controller
                 ]);
             }
             
-            QBOCompany::where('user_id', $user->UserID)->update([
-                'status' => 'not connected'
-            ]);
+            // Keep QuickBooks OAuth tokens / connection across logins.
+            // Active company stays as stored in qbo_companies.
 
             if (Helpers::hasExhaustedCheckAllowance($user)) {
                 return redirect()->route('user.dashboard')
