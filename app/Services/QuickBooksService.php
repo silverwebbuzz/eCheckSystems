@@ -105,6 +105,10 @@ class QuickBooksService
         $expense = [];
 
         foreach ($accounts ?: [] as $account) {
+            if (!$this->isActiveQboAccount($account)) {
+                continue;
+            }
+
             $item = [
                 'id' => (string) ($account->Id ?? ''),
                 'name' => (string) ($account->FullyQualifiedName ?? $account->Name ?? ''),
@@ -112,11 +116,15 @@ class QuickBooksService
                 'sub_type' => (string) ($account->AccountSubType ?? ''),
             ];
 
+            if ($item['id'] === '') {
+                continue;
+            }
+
             $type = strtolower($item['type']);
             if (in_array($type, ['bank', 'credit card'], true)) {
                 $bank[] = $item;
             }
-            if (in_array($type, ['expense', 'cost of goods sold', 'other expense'], true) || str_contains(strtolower($item['sub_type']), 'expense')) {
+            if ($this->isExpenseAccountType($type)) {
                 $expense[] = $item;
             }
         }
@@ -201,11 +209,10 @@ class QuickBooksService
         $type = $purchase->PaymentType ?? '';
         if (is_object($type)) {
             $type = $type->value ?? $type->name ?? (string) $type;
-            }
-            if (strcasecmp(trim((string) $type), 'Check') !== 0) {
-                return false;
-                }
-                dump($type);
+        }
+        if (strcasecmp(trim((string) $type), 'Check') !== 0) {
+            return false;
+        }
 
         $doc = trim((string) ($purchase->DocNumber ?? ''));
         $printStatus = (string) ($purchase->PrintStatus ?? '');
@@ -503,7 +510,7 @@ class QuickBooksService
 
     protected function syncLineItemsFromPurchase(Checks $check, $purchase, DataService $dataService): void
     {
-        CheckLineItem::where('CheckID', $check->CheckID)->where('source', 'qbo')->delete();
+        CheckLineItem::where('CheckID', $check->CheckID)->delete();
 
         $lines = $purchase->Line ?? [];
         if (!is_array($lines) && !($lines instanceof \Traversable)) {
@@ -537,10 +544,6 @@ class QuickBooksService
             if ($accountName === '' && !empty($itemRef['name'])) {
                 $accountName = $itemRef['name'];
             }
-            if (!$accountId && !empty($itemRef['id'])) {
-                $accountId = $itemRef['id'];
-            }
-
             $detail = $accountDetail ?: $itemDetail;
             $customerRef = $this->parseQboRef($detail->CustomerRef ?? null);
 
@@ -595,13 +598,19 @@ class QuickBooksService
         }
 
         $dataService = $this->dataServiceForCompany($qboCompany);
-        $lines = $this->buildQboLines($check, $qboCompany);
+        $bankAccount = $this->verifyBankAccountId($dataService, (string) $qboCompany->default_bank_account_id);
+        if (!$bankAccount) {
+            throw new Exception('Default bank account is no longer valid in QuickBooks. Please reselect it in Settings → QuickBooks.');
+        }
+
+        $isUpdate = (bool) $check->qbo_id;
+        $lines = $this->buildQboLines($check, $qboCompany, $dataService, $isUpdate);
 
         $payload = [
             'PaymentType' => 'Check',
             'AccountRef' => [
-                'value' => $qboCompany->default_bank_account_id,
-                'name' => $qboCompany->default_bank_account_name,
+                'value' => $bankAccount['id'],
+                'name' => $bankAccount['name'],
             ],
             'TotalAmt' => (float) $check->Total,
             'TxnDate' => Carbon::parse($check->IssueDate)->toDateString(),
@@ -664,53 +673,258 @@ class QuickBooksService
         return $check->fresh();
     }
 
-    protected function buildQboLines(Checks $check, QBOCompany $qboCompany): array
+    /**
+     * Normalize and validate Send Payment category rows before saving locally.
+     *
+     * @return array{0: array<int, array<string, mixed>>, 1: float}
+     */
+    public function prepareLocalCheckLineItems(array $rawLines, ?QBOCompany $qboCompany): array
+    {
+        $rows = [];
+        $lineNo = 1;
+        $total = 0.0;
+
+        foreach ($rawLines as $line) {
+            $accountId = trim((string) ($line['qbo_account_id'] ?? ''));
+            $accountName = trim((string) ($line['account_name'] ?? ''));
+            $description = trim((string) ($line['description'] ?? ''));
+            $amount = $this->normalizeMoneyValue($line['amount'] ?? null);
+
+            $isBlank = $accountId === '' && $accountName === '' && $description === '' && $amount <= 0;
+            if ($isBlank || $amount <= 0) {
+                continue;
+            }
+
+            if ($accountId === '') {
+                throw new Exception('Each Category detail row with an amount must have a Category selected. Incomplete rows are not saved as the default expense account.');
+            }
+
+            if ($qboCompany) {
+                $dataService = $this->dataServiceForCompany($qboCompany);
+                $resolved = $this->resolveExpenseAccountRef(
+                    $dataService,
+                    $qboCompany,
+                    $accountId,
+                    $accountName !== '' ? $accountName : null,
+                    false
+                );
+                $accountId = $resolved['id'];
+                $accountName = $resolved['name'];
+            }
+
+            $rows[] = [
+                'line_no' => $lineNo++,
+                'qbo_account_id' => $accountId,
+                'account_name' => $accountName !== '' ? $accountName : null,
+                'description' => $description !== '' ? $description : null,
+                'amount' => $amount,
+            ];
+
+            $total = round($total + $amount, 2);
+        }
+
+        return [$rows, $total];
+    }
+
+    protected function buildQboLines(Checks $check, QBOCompany $qboCompany, DataService $dataService, bool $isUpdate = false): array
     {
         $items = $check->lineItems()->get();
         $lines = [];
-        $n = 1;
 
         if ($items->isNotEmpty()) {
             foreach ($items as $item) {
-                $accountId = $item->qbo_account_id ?: $qboCompany->default_expense_account_id;
-                if (!$accountId) {
-                    throw new Exception('Missing expense account for line item. Set a default expense account in Settings → QuickBooks.');
-                }
+                $resolved = $this->resolveExpenseAccountRef(
+                    $dataService,
+                    $qboCompany,
+                    $item->qbo_account_id ? (string) $item->qbo_account_id : null,
+                    $item->account_name ? (string) $item->account_name : null,
+                    false
+                );
 
-                $lines[] = [
-                    'Id' => (string) $n,
+                $linePayload = [
                     'Amount' => (float) $item->amount,
                     'DetailType' => 'AccountBasedExpenseLineDetail',
-                    'Description' => (string) ($item->description ?: $item->account_name),
+                    'Description' => (string) ($item->description ?: $resolved['name']),
                     'AccountBasedExpenseLineDetail' => [
                         'AccountRef' => [
-                            'value' => $accountId,
-                            'name' => $item->account_name ?: $qboCompany->default_expense_account_name,
+                            'value' => $resolved['id'],
                         ],
                     ],
                 ];
-                $n++;
+
+                if ($isUpdate && !empty($item->qbo_line_id)) {
+                    $linePayload['Id'] = (string) $item->qbo_line_id;
+                }
+
+                $lines[] = $linePayload;
             }
 
             return $lines;
         }
 
-        if (!$qboCompany->default_expense_account_id) {
-            throw new Exception('Please set a default expense account in Settings → QuickBooks.');
-        }
-
-        return [[
-            'Id' => '1',
+        $resolved = $this->resolveExpenseAccountRef($dataService, $qboCompany, null, null, true);
+        $fallbackLine = [
             'Amount' => (float) $check->Total,
             'DetailType' => 'AccountBasedExpenseLineDetail',
             'Description' => (string) ($check->Memo ?: 'Check from Echeck Systems'),
             'AccountBasedExpenseLineDetail' => [
                 'AccountRef' => [
-                    'value' => $qboCompany->default_expense_account_id,
-                    'name' => $qboCompany->default_expense_account_name,
+                    'value' => $resolved['id'],
                 ],
             ],
-        ]];
+        ];
+
+        if ($isUpdate) {
+            $existingLineId = $items->first()?->qbo_line_id;
+            if ($existingLineId) {
+                $fallbackLine['Id'] = (string) $existingLineId;
+            }
+        }
+
+        return [$fallbackLine];
+    }
+
+    protected function resolveExpenseAccountRef(
+        DataService $dataService,
+        QBOCompany $qboCompany,
+        ?string $accountId,
+        ?string $accountName,
+        bool $allowDefault = false
+    ): array {
+        if ($accountId) {
+            $verified = $this->verifyExpenseAccountId($dataService, $accountId);
+            if ($verified) {
+                return $verified;
+            }
+        }
+
+        if ($accountName) {
+            $match = $this->findExpenseAccountByName($qboCompany, $accountName);
+            if ($match) {
+                $verified = $this->verifyExpenseAccountId($dataService, $match['id']);
+                if ($verified) {
+                    return $verified;
+                }
+            }
+        }
+
+        if ($allowDefault) {
+            $defaultId = $qboCompany->default_expense_account_id ? (string) $qboCompany->default_expense_account_id : null;
+            if ($defaultId) {
+                $verified = $this->verifyExpenseAccountId($dataService, $defaultId);
+                if ($verified) {
+                    return $verified;
+                }
+            }
+
+            throw new Exception('Please set a valid default expense account in Settings → QuickBooks.');
+        }
+
+        $label = $accountName ?: ($accountId ?: 'unknown');
+        throw new Exception("QuickBooks expense account \"{$label}\" is invalid or unavailable. Reselect Category in Send Payment or update Settings → QuickBooks.");
+    }
+
+    protected function findExpenseAccountByName(QBOCompany $qboCompany, string $accountName): ?array
+    {
+        $normalized = trim($accountName);
+        if ($normalized === '') {
+            return null;
+        }
+
+        $expenseAccounts = collect($this->fetchAccounts($qboCompany)['expense'] ?? []);
+
+        return $expenseAccounts->first(function (array $acct) use ($normalized) {
+            $candidate = (string) ($acct['name'] ?? '');
+            if ($candidate === '') {
+                return false;
+            }
+
+            if (strcasecmp($candidate, $normalized) === 0) {
+                return true;
+            }
+
+            $shortName = str_contains($candidate, ':')
+                ? trim(substr($candidate, strrpos($candidate, ':') + 1))
+                : $candidate;
+
+            return strcasecmp($shortName, $normalized) === 0;
+        });
+    }
+
+    protected function verifyExpenseAccountId(DataService $dataService, string $accountId): ?array
+    {
+        try {
+            $account = $dataService->FindById('Account', $accountId);
+            if (!$account || !$this->isActiveQboAccount($account)) {
+                return null;
+            }
+
+            $type = strtolower((string) ($account->AccountType ?? ''));
+            if (!$this->isExpenseAccountType($type)) {
+                return null;
+            }
+
+            return [
+                'id' => (string) ($account->Id ?? $accountId),
+                'name' => (string) ($account->FullyQualifiedName ?? $account->Name ?? ''),
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('QBO expense account verify failed: ' . $e->getMessage(), ['account_id' => $accountId]);
+
+            return null;
+        }
+    }
+
+    protected function verifyBankAccountId(DataService $dataService, string $accountId): ?array
+    {
+        try {
+            $account = $dataService->FindById('Account', $accountId);
+            if (!$account || !$this->isActiveQboAccount($account)) {
+                return null;
+            }
+
+            $type = strtolower((string) ($account->AccountType ?? ''));
+            if (!in_array($type, ['bank', 'credit card'], true)) {
+                return null;
+            }
+
+            return [
+                'id' => (string) ($account->Id ?? $accountId),
+                'name' => (string) ($account->FullyQualifiedName ?? $account->Name ?? ''),
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('QBO bank account verify failed: ' . $e->getMessage(), ['account_id' => $accountId]);
+
+            return null;
+        }
+    }
+
+    protected function isActiveQboAccount($account): bool
+    {
+        if (!isset($account->Active)) {
+            return true;
+        }
+
+        return filter_var($account->Active, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    protected function isExpenseAccountType(string $type): bool
+    {
+        return in_array(strtolower($type), ['expense', 'cost of goods sold', 'other expense'], true);
+    }
+
+    protected function normalizeMoneyValue($value): float
+    {
+        if ($value === null) {
+            return 0.0;
+        }
+
+        $normalized = preg_replace('/[^0-9.\-]/', '', (string) $value);
+        if ($normalized === '' || $normalized === null) {
+            return 0.0;
+        }
+
+        return round((float) $normalized, 2);
     }
 
     protected function findOrCreateVendor(DataService $dataService, Payors $payee): ?string

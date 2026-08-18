@@ -833,6 +833,169 @@
             $(document).on('click', '.removeRow', function() {
                 $(this).closest('tr').remove();
             });
+
+            const qboExpenseAccounts = @json($qboAccounts ?? []);
+            const hasQboCategoryDetails = @json(isset($qboCompany) && !empty($qboAccounts));
+            const $qboTable = $('#qbo-category-details-table');
+            const $qboBody = $('#qbo-lines-body');
+            const $qboTotal = $('#qbo-line-total-value');
+
+            function parseMoneyToCents(value) {
+                const normalized = String(value || '').replace(/[^0-9.-]/g, '');
+                if (normalized === '' || normalized === '.' || normalized === '-') {
+                    return 0;
+                }
+                const amount = Number(normalized);
+                if (!Number.isFinite(amount)) {
+                    return 0;
+                }
+                return Math.round(amount * 100);
+            }
+
+            function formatCents(cents) {
+                return (cents / 100).toFixed(2);
+            }
+
+            function createQboRowData(data = {}) {
+                const optionsHtml = ['<option value="">Select Category</option>']
+                    .concat(
+                        qboExpenseAccounts.map((account) => {
+                            const safeId = String(account.id ?? '').replace(/"/g, '&quot;');
+                            const safeName = String(account.name ?? '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            return `<option value="${safeId}" data-name="${safeName}">${safeName}</option>`;
+                        })
+                    )
+                    .join('');
+
+                return `
+                    <tr class="qbo-line-row">
+                        <td class="qbo-line-number text-center"></td>
+                        <td>
+                            <select class="form-control qbo-account-select">
+                                ${optionsHtml}
+                            </select>
+                            <input type="hidden" class="qbo-account-name" value="">
+                        </td>
+                        <td>
+                            <input type="text" class="form-control qbo-description" maxlength="500" autocomplete="off">
+                        </td>
+                        <td>
+                            <input type="text" class="form-control qbo-amount" inputmode="decimal" autocomplete="off">
+                        </td>
+                        <td class="text-center">
+                            <button type="button" class="btn btn-sm btn-primary qbo-copy-line" title="Copy"><i class="ti ti-copy"></i></button>
+                            <button type="button" class="btn btn-sm btn-danger qbo-delete-line" title="Delete"><i class="ti ti-trash"></i></button>
+                        </td>
+                    </tr>
+                `;
+            }
+
+            function applyQboRowValues($row, rowData = {}) {
+                if (rowData.qbo_account_id) {
+                    $row.find('.qbo-account-select').val(String(rowData.qbo_account_id));
+                }
+
+                const selectedName = $row.find('.qbo-account-select option:selected').data('name') || '';
+                const accountName = rowData.account_name || selectedName || '';
+                $row.find('.qbo-account-name').val(accountName);
+                $row.find('.qbo-description').val(rowData.description || '');
+                $row.find('.qbo-amount').val(rowData.amount !== undefined && rowData.amount !== null && rowData.amount !== '' ? Number(rowData.amount).toFixed(2) : '');
+            }
+
+            function reindexQboLineNames() {
+                $qboBody.find('tr.qbo-line-row').each(function(index) {
+                    $(this).find('.qbo-line-number').text(index + 1);
+                    $(this).find('.qbo-account-select').attr('name', `qbo_lines[${index}][qbo_account_id]`);
+                    const selectedName = $(this).find('.qbo-account-select option:selected').data('name') || '';
+                    const currentAccountName = $(this).find('.qbo-account-name').val();
+                    if (!currentAccountName && selectedName) {
+                        $(this).find('.qbo-account-name').val(selectedName);
+                    }
+                    $(this).find('.qbo-account-name').attr('name', `qbo_lines[${index}][account_name]`);
+                    $(this).find('.qbo-description').attr('name', `qbo_lines[${index}][description]`);
+                    $(this).find('.qbo-amount').attr('name', `qbo_lines[${index}][amount]`);
+                });
+            }
+
+            function updateQboTotals(syncAmountField = true) {
+                let totalCents = 0;
+                $qboBody.find('.qbo-amount').each(function() {
+                    totalCents += parseMoneyToCents($(this).val());
+                });
+
+                const totalAmount = formatCents(totalCents);
+                $qboTotal.text(totalAmount);
+
+                if (syncAmountField) {
+                    $('#amount').val(totalAmount).trigger('input');
+                }
+            }
+
+            function refreshQboRows() {
+                reindexQboLineNames();
+                updateQboTotals(true);
+            }
+
+            function addQboLine(rowData = {}, shouldRefresh = true) {
+                const $row = $(createQboRowData());
+                $qboBody.append($row);
+                applyQboRowValues($row, rowData);
+                if (shouldRefresh) {
+                    refreshQboRows();
+                }
+            }
+
+            function ensureQboStarterRows(count = 3) {
+                if (!hasQboCategoryDetails) {
+                    return;
+                }
+                if ($qboBody.find('tr.qbo-line-row').length === 0) {
+                    for (let i = 0; i < count; i++) {
+                        addQboLine({}, false);
+                    }
+                    refreshQboRows();
+                }
+            }
+
+            if (hasQboCategoryDetails && $qboTable.length > 0) {
+                ensureQboStarterRows(3);
+
+                $('#add-qbo-line').on('click', function() {
+                    addQboLine({});
+                });
+
+                $('#clear-qbo-lines').on('click', function() {
+                    $qboBody.empty();
+                    ensureQboStarterRows(3);
+                });
+
+                $(document).on('change', '.qbo-account-select', function() {
+                    const name = $(this).find('option:selected').data('name') || '';
+                    $(this).closest('tr').find('.qbo-account-name').val(name);
+                });
+
+                $(document).on('input', '.qbo-amount', function() {
+                    updateQboTotals(true);
+                });
+
+                $(document).on('click', '.qbo-delete-line', function() {
+                    $(this).closest('tr').remove();
+                    ensureQboStarterRows(1);
+                    refreshQboRows();
+                });
+
+                $(document).on('click', '.qbo-copy-line', function() {
+                    const $source = $(this).closest('tr');
+                    addQboLine({
+                        qbo_account_id: $source.find('.qbo-account-select').val(),
+                        account_name: $source.find('.qbo-account-name').val(),
+                        description: $source.find('.qbo-description').val(),
+                        amount: $source.find('.qbo-amount').val(),
+                    });
+                });
+
+                refreshQboRows();
+            }
         });
 
         var grid_row_count = 0;
@@ -1183,6 +1346,90 @@
                         </div>
                     </div>
                 </div>
+
+                @if (isset($qboCompany) && !empty($qboAccounts))
+                    <div class="row mt-4">
+                        <div class="col-sm-12">
+                            <h5 class="mb-3">Category details</h5>
+                            @if ($errors->has('qbo_lines'))
+                                <span class="text-danger d-block mb-2">{{ $errors->first('qbo_lines') }}</span>
+                            @endif
+                            <div class="table-responsive">
+                                <table class="table table-bordered" id="qbo-category-details-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 60px;">#</th>
+                                            <th>Category</th>
+                                            <th>Description</th>
+                                            <th style="width: 180px;" class="text-end">Amount</th>
+                                            <th style="width: 140px;" class="text-center">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="qbo-lines-body">
+                                        @php
+                                            $renderLines = collect(old('qbo_lines', []));
+                                            if ($renderLines->isEmpty()) {
+                                                $renderLines = isset($lineItems) ? $lineItems : collect();
+                                            }
+                                        @endphp
+                                        @foreach ($renderLines as $index => $line)
+                                            @php
+                                                $lineAccountId = is_array($line) ? ($line['qbo_account_id'] ?? '') : ($line->qbo_account_id ?? '');
+                                                $lineAccountName = is_array($line) ? ($line['account_name'] ?? '') : ($line->account_name ?? '');
+                                                $lineDescription = is_array($line) ? ($line['description'] ?? '') : ($line->description ?? '');
+                                                $lineAmount = is_array($line) ? ($line['amount'] ?? '') : ($line->amount ?? '');
+                                            @endphp
+                                            <tr class="qbo-line-row">
+                                                <td class="qbo-line-number text-center">{{ $loop->iteration }}</td>
+                                                <td>
+                                                    <select class="form-control qbo-account-select"
+                                                        name="qbo_lines[{{ $index }}][qbo_account_id]">
+                                                        <option value="">Select Category</option>
+                                                        @foreach ($qboAccounts as $account)
+                                                            <option value="{{ $account['id'] }}" data-name="{{ $account['name'] }}"
+                                                                {{ (string) $lineAccountId === (string) $account['id'] ? 'selected' : '' }}>
+                                                                {{ $account['name'] }}
+                                                            </option>
+                                                        @endforeach
+                                                    </select>
+                                                    <input type="hidden" class="qbo-account-name"
+                                                        name="qbo_lines[{{ $index }}][account_name]"
+                                                        value="{{ $lineAccountName }}">
+                                                </td>
+                                                <td>
+                                                    <input type="text" class="form-control qbo-description"
+                                                        name="qbo_lines[{{ $index }}][description]"
+                                                        value="{{ $lineDescription }}" maxlength="500" autocomplete="off">
+                                                </td>
+                                                <td>
+                                                    <input type="text" class="form-control qbo-amount"
+                                                        name="qbo_lines[{{ $index }}][amount]"
+                                                        value="{{ $lineAmount !== '' ? number_format((float) $lineAmount, 2, '.', '') : '' }}"
+                                                        inputmode="decimal" autocomplete="off">
+                                                </td>
+                                                <td class="text-center">
+                                                    <button type="button" class="btn btn-sm btn-primary qbo-copy-line" title="Copy"><i
+                                                            class="ti ti-copy"></i></button>
+                                                    <button type="button" class="btn btn-sm btn-danger qbo-delete-line" title="Delete"><i
+                                                            class="ti ti-trash"></i></button>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                <div>
+                                    <button type="button" class="btn btn-sm btn-primary" id="add-qbo-line">Add lines</button>
+                                    <button type="button" class="btn btn-sm btn-label-secondary" id="clear-qbo-lines">Clear all lines</button>
+                                </div>
+                                <div>
+                                    <strong>Total: $<span id="qbo-line-total-value">0.00</span></strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @endif
 
                 <div class="row justify-content-center" style="margin-top: 30px">
                     <div class="col-sm-3">

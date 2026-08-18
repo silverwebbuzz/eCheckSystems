@@ -27,6 +27,7 @@ use App\Mail\SendCheckMail;
 use App\Mail\SendWebFormMail;
 use Illuminate\Support\Facades\Mail;
 use App\Models\User;
+use App\Models\CheckLineItem;
 use App\Mail\SendWebFormMailForCilent;
 use App\Helpers\Helpers;
 use App\Models\QBOCompany;
@@ -481,7 +482,18 @@ class CheckController extends Controller
 
         $grid_history_ids = $grid_histories->pluck('id')->toArray();
 
-        return view('user.check.send_payment_generate_check', compact('grid_history_ids', 'grid_histories', 'lastCheck', 'payees', 'payors', 'userSignatures'));
+        $qboAccounts = [];
+        $qboCompany = app(QuickBooksService::class)->activeCompanyForUser(Auth::id());
+        if ($qboCompany) {
+            try {
+                $qboAccounts = app(QuickBooksService::class)->fetchAccounts($qboCompany)['expense'] ?? [];
+            } catch (\Throwable $e) {
+                $qboAccounts = [];
+            }
+        }
+        $lineItems = collect();
+
+        return view('user.check.send_payment_generate_check', compact('grid_history_ids', 'grid_histories', 'lastCheck', 'payees', 'payors', 'userSignatures', 'qboAccounts', 'qboCompany', 'lineItems'));
     }
     public function send_payment_check_generate(Request $request)
     {
@@ -499,6 +511,10 @@ class CheckController extends Controller
             'payor' => 'required|exists:Entities,EntityID',
             'payee' => 'required|exists:Entities,EntityID',
             'signature_id' => 'required',
+            'qbo_lines.*.qbo_account_id' => 'nullable|string',
+            'qbo_lines.*.account_name' => 'nullable|string|max:255',
+            'qbo_lines.*.description' => 'nullable|string|max:500',
+            'qbo_lines.*.amount' => 'nullable|numeric|min:0',
         ], [
             'signature_id' => 'The signature field is required.',
         ]);
@@ -516,6 +532,25 @@ class CheckController extends Controller
             return redirect()->back()
                 ->withErrors(['payee' => 'Selected payee must have an email address for send payment checks.'])
                 ->withInput();
+        }
+
+        $qboCompany = app(QuickBooksService::class)->activeCompanyForUser(Auth::id());
+        try {
+            [$preparedQboLines, $qboLinesTotal] = app(QuickBooksService::class)
+                ->prepareLocalCheckLineItems($request->input('qbo_lines', []), $qboCompany);
+        } catch (\Throwable $e) {
+            return redirect()->back()
+                ->withErrors(['qbo_lines' => $e->getMessage()])
+                ->withInput();
+        }
+        $requestedAmount = round((float) $request->amount, 2);
+
+        if (!empty($preparedQboLines)) {
+            if (round($qboLinesTotal, 2) !== $requestedAmount) {
+                return redirect()->back()
+                    ->withErrors(['amount' => 'Category details total must exactly match the check amount.'])
+                    ->withInput();
+            }
         }
 
 
@@ -559,6 +594,7 @@ class CheckController extends Controller
                     'CheckPDF' => null,
                     'SignID' => $request->signature_id,
                     'ip_address' => request()->ip(),
+                    'qbo_company_id' => $qboCompany?->id,
                 ]);
             }
 
@@ -646,6 +682,7 @@ class CheckController extends Controller
                 'CheckPDF' => null,
                 'SignID' => $request->signature_id,
                 'ip_address' => request()->ip(),
+                'qbo_company_id' => $qboCompany?->id,
                 'created_at' => Carbon::now(),
             ]);
 
@@ -723,6 +760,8 @@ class CheckController extends Controller
             $message = 'Check Created successfully';
         }
 
+        $this->saveCheckLineItems($checks, $preparedQboLines);
+
         DB::commit();
         return redirect()->route('check.send_payment')->with('success', $message);
     }
@@ -763,7 +802,18 @@ class CheckController extends Controller
             $grid_history_ids = $grid_histories->pluck('id')->toArray();
         }
 
-        return view('user.check.send_payment_generate_check', compact('grid_history_ids', 'grid_histories', 'grid_items', 'payees', 'payors', 'check', 'old_payee', 'old_payor', 'old_sign', 'userSignatures'));
+        $qboAccounts = [];
+        $qboCompany = app(QuickBooksService::class)->activeCompanyForUser(Auth::id());
+        if ($qboCompany) {
+            try {
+                $qboAccounts = app(QuickBooksService::class)->fetchAccounts($qboCompany)['expense'] ?? [];
+            } catch (\Throwable $e) {
+                $qboAccounts = [];
+            }
+        }
+        $lineItems = $check->lineItems;
+
+        return view('user.check.send_payment_generate_check', compact('grid_history_ids', 'grid_histories', 'grid_items', 'payees', 'payors', 'check', 'old_payee', 'old_payor', 'old_sign', 'userSignatures', 'qboAccounts', 'qboCompany', 'lineItems'));
     }
 
     public function generateAndSavePDF($data, $send_check = 0)
@@ -1864,6 +1914,23 @@ class CheckController extends Controller
         }
 
         PushCheckToQuickBooksJob::dispatch((int) $check->CheckID)->afterCommit();
+    }
+
+    protected function saveCheckLineItems(Checks $check, array $preparedQboLines): void
+    {
+        CheckLineItem::where('CheckID', $check->CheckID)->where('source', 'local')->delete();
+
+        foreach ($preparedQboLines as $row) {
+            CheckLineItem::create([
+                'CheckID' => $check->CheckID,
+                'line_no' => $row['line_no'],
+                'qbo_account_id' => $row['qbo_account_id'],
+                'account_name' => $row['account_name'],
+                'description' => $row['description'],
+                'amount' => $row['amount'],
+                'source' => 'local',
+            ]);
+        }
     }
 
     public function isExists(Request $request)
