@@ -265,7 +265,7 @@ class PayorsController extends Controller
             'routing_number' => Helpers::routingNumberRules(),
             'account_number' => 'required|numeric',
             'status' => 'required',
-            'category' => 'required',
+            // 'category' => 'required',
         ]);
 
         if ($validator->fails()) {
@@ -294,7 +294,7 @@ class PayorsController extends Controller
         $payor->AccountNumber = $request->account_number;
         $payor->Type = $payors_type;
         $payor->Status = $request->status;
-        $payor->Category = $request->category;
+        // $payor->Category = $request->category;
 
         $payor->save();
 
@@ -399,7 +399,7 @@ class PayorsController extends Controller
         $payor->AccountNumber = $request->account_number;
         $payor->Type = $payors_type;
         $payor->Status = $request->status;
-        $payor->Category = $request->category;
+        // $payor->Category = $request->category;
 
         $payor->save();
 
