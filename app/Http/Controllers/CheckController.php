@@ -790,6 +790,7 @@ class CheckController extends Controller
             ->set_option('isHtml5ParserEnabled', true)
             ->set_option('isRemoteEnabled', true);
 
+        // $pdf->setEncryption( '1234', '123', ['print'] );
         // Define the file path where you want to save the PDF
         // $file_name = 'check-' . $data['check_number'] . '-' . time() . '.pdf';
         $file_name = 'check-' . $data['check_number'] . '-' . time() . '-' . $data['check_id'] . '.pdf';

@@ -36,7 +36,9 @@ class UserAuthController extends Controller
     public function register()
     {
         if (Auth::check()) {
-            return redirect()->route('user.dashboard');
+            return Auth::user()->needsAccountChoice()
+                ? redirect()->route('user.account-choice')
+                : redirect()->route('user.dashboard');
         }
         return view('frontend.auth.register');
     }
@@ -44,7 +46,9 @@ class UserAuthController extends Controller
     public function login()
     {
         if (Auth::check()) {
-            return redirect()->route('user.dashboard');
+            return Auth::user()->needsAccountChoice()
+                ? redirect()->route('user.account-choice')
+                : redirect()->route('user.dashboard');
         }
         if (Auth::guard('admin')->check()) {
             return redirect()->route('admin.login');
@@ -55,17 +59,38 @@ class UserAuthController extends Controller
     public function package(Request $request)
     {
         $userId = request()->query('user_id');
-        $user=User::find($userId);
-        $query=Package::where('Status', 'Active');
+        $user = User::find($userId);
 
-        $PaymentSubscription = PaymentSubscription::where('UserID', $user->UserID)->exists();
-        if($PaymentSubscription){
-            $query->whereRaw('LOWER(Name) != ?', ['trial']);
+        if (!$user) {
+            return redirect()->route('user.login')->with('error', 'User not found.');
         }
-        
+
+        if ($user->isPendingApproval()) {
+            return redirect()->route('user.login')->with(
+                'error',
+                'Your account is currently under review. You will receive an email once your account has been approved.'
+            );
+        }
+
+        if (!$user->isApproved()) {
+            return redirect()->route('user.login')->with('error', 'Your account is not approved yet.');
+        }
+
+        if (Auth::check() && Auth::user()->UserID != $user->UserID) {
+            abort(403);
+        }
+
+        $query = Package::where('Status', 'Active')
+            ->whereRaw('LOWER(Name) != ?', ['trial']);
+
         $packages = $query->get();
 
-        return view('frontend.auth.package', compact('packages', 'userId'));
+        $resendVerifyLink = null;
+        if (!$user->EmailVerified) {
+            $resendVerifyLink = route('user.resend_verify_email', \Illuminate\Support\Facades\Crypt::encrypt($user->UserID));
+        }
+
+        return view('frontend.auth.package', compact('packages', 'userId', 'user', 'resendVerifyLink'));
     }
 
     public function login_action(Request $request,FraudService $fraudService)
@@ -83,31 +108,19 @@ class UserAuthController extends Controller
 
         if (!empty($user) && Hash::check($request->password, $user->PasswordHash)) {
 
-            if (!empty($user) && $user->Status == 'Inactive') {
-                
-                $fraudService->addIpForFraudUser($user,$request->ip());
-                
+            if ($user->Status == User::STATUS_INACTIVE) {
+                if ($user->isFraud()) {
+                    $fraudService->addIpForFraudUser($user, $request->ip());
+                    return redirect()->back()->withErrors(['login' => 'Your account has been suspended.'])->withInput();
+                }
                 return redirect()->back()->withErrors(['login' => 'User status is not Active'])->withInput();
             }
-            
-            $packag_c = PaymentSubscription::where('UserID', $user->UserID)->where('PackageID', $user->CurrentPackageID)
-                ->orderBy('PaymentSubscriptionID', 'desc')->first()?->RemainingChecks ?? 0;
 
-            if($user->CurrentPackageID == null ){
-                return redirect()->route('user.package', ['user_id' => $user->UserID]);
+            if ($user->isPendingApproval()) {
+                return redirect()->back()->withErrors([
+                    'login' => 'Your account is currently under review. You will receive an email once your account has been approved.',
+                ])->withInput();
             }
-
-            $package = Package::find($user->CurrentPackageID);
-
-            if ($packag_c == 0 && $user->CurrentPackageID != -1 && $package->CheckLimitPerMonth != 0) {
-                return redirect()->route('user.package', ['user_id' => $user->UserID]);
-            }
-
-            // if ($user->EmailVerified == false) {
-            //     $enc_user_id = Crypt::encrypt($user->UserID);
-            //     $link = route('user.resend_verify_email', $enc_user_id);
-            //     return redirect()->back()->withErrors(['login' => 'Please verify your email first <a href="' . $link . '">Resend</a>'])->withInput();
-            // }
 
             Auth::login($user);
             $name = $user->FirstName . ' ' . $user->LastName;
@@ -128,6 +141,23 @@ class UserAuthController extends Controller
             QBOCompany::where('user_id', $user->UserID)->update([
                 'status' => 'not connected'
             ]);
+
+            if ($user->needsAccountChoice()) {
+                return redirect()->route('user.account-choice');
+            }
+
+            $packag_c = PaymentSubscription::where('UserID', $user->UserID)->where('PackageID', $user->CurrentPackageID)
+                ->orderBy('PaymentSubscriptionID', 'desc')->first()?->RemainingChecks ?? 0;
+
+            if ($user->CurrentPackageID == null) {
+                return redirect()->route('user.account-choice');
+            }
+
+            $package = Package::find($user->CurrentPackageID);
+
+            if ($packag_c == 0 && $user->CurrentPackageID != -1 && $package->CheckLimitPerMonth != 0) {
+                return redirect()->route('user.package', ['user_id' => $user->UserID]);
+            }
 
             return redirect()->route('user.dashboard');
         }
@@ -167,7 +197,7 @@ class UserAuthController extends Controller
             'Address' => $request->address,
             'PhoneNumber' => preg_replace('/\D/', '', $request->phone_number),
             'PasswordHash' => Hash::make($request->password),
-            'Status' => 'Active',
+            'Status' => User::STATUS_ACTIVE,
             'CreatedAt' => now(),
             'UpdatedAt' => now(),
             'CusID' => !empty($cus['id']) ? $cus['id'] : NULL,
@@ -179,17 +209,43 @@ class UserAuthController extends Controller
             'ip_address' => $request->ip(),
         ]);
 
-       $package = Package::whereRaw('LOWER(Name) = ?', ['trial'])->first();
+        $name = $request->firstname . ' ' . $request->lastname;
 
-        return redirect()->route('user-select-free-package', [$user->UserID,$package->PackageID]);
-        // return redirect()->route('user.package', ['user_id' => $user->UserID]);
+        $link = route('user.verify_email', [$user->UserID, sha1($user->Email)]);
+        $link_button = '<a href="' . $link . '" target="_blank">Verify Email</a>';
+
+        try {
+            Mail::to($user->Email)->send(new SendEmail(1, $name, null, $link_button, $link));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Registration verify email failed: ' . $e->getMessage());
+        }
+
+        try {
+            Mail::to(env('ADMIN_EMAIL'))->send(new AdminMail(10, 'Pending Approval', $name, $user->Email, [
+                'phone' => $user->PhoneNumber,
+                'company' => $user->CompanyName,
+                'address' => $user->Address,
+                'city' => $user->City,
+                'state' => $user->State,
+                'zip' => $user->Zip,
+                'timezone' => $user->timezone,
+                'ip_address' => $user->ip_address,
+            ]));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Registration admin email failed: ' . $e->getMessage());
+        }
+
+        return redirect()->route('user.login')->with(
+            'success',
+            'Thank you for signing up! Please check your email to verify your account. Your account is also under review and we will notify you once it has been approved.'
+        );
     }
 
     public function select_package(Request $request, $id, $plan)
     {
         $user = User::find($id);
         $user->CurrentPackageID = $plan;
-        $user->Status = 'Active';
+        $user->Status = User::STATUS_ACTIVE;
         $user->save();
 
         $PaymentSubscription_plan = PaymentSubscription::where('UserID', $id)->whereIn('Status', ['Canceled', 'Pending'])->delete();
@@ -328,14 +384,83 @@ class UserAuthController extends Controller
     {
         $user = User::find($id);
 
+        if (!$user) {
+            return redirect()->route('user.login')->with('error', 'User not found.');
+        }
+
+        if ($user->isPendingApproval()) {
+            return redirect()->route('user.login')->with(
+                'error',
+                'Your account is currently under review. You will receive an email once your account has been approved.'
+            );
+        }
+
+        if (!$user->isApproved()) {
+            return redirect()->route('user.login')->with('error', 'Your account is not approved yet.');
+        }
+
+        if (Auth::check() && Auth::user()->UserID != $user->UserID) {
+            abort(403);
+        }
+
+        return $this->activateTrialForUser($request, $user, $plan);
+    }
+
+    public function accountChoice()
+    {
+        $user = Auth::user();
+
+        if (!$user->isApproved()) {
+            Auth::logout();
+            return redirect()->route('user.login')->with(
+                'error',
+                'Your account is currently under review. You will receive an email once your account has been approved.'
+            );
+        }
+
+        if (!$user->needsAccountChoice()) {
+            return redirect()->route('user.dashboard');
+        }
+
+        $trialPackage = Package::whereRaw('LOWER(Name) = ?', ['trial'])->first();
+
+        return view('frontend.auth.account-choice', compact('trialPackage'));
+    }
+
+    public function accountChoiceTrial(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!$user->isApproved() || !$user->needsAccountChoice()) {
+            return redirect()->route('user.dashboard');
+        }
+
+        $trialPackage = Package::whereRaw('LOWER(Name) = ?', ['trial'])->firstOrFail();
+
+        return $this->activateTrialForUser($request, $user, $trialPackage->PackageID);
+    }
+
+    public function accountChoicePaid()
+    {
+        $user = Auth::user();
+
+        if (!$user->isApproved() || !$user->needsAccountChoice()) {
+            return redirect()->route('user.dashboard');
+        }
+
+        return redirect()->route('user.package', ['user_id' => $user->UserID]);
+    }
+
+    protected function activateTrialForUser(Request $request, User $user, $plan)
+    {
         $alreadySubscribed = PaymentSubscription::where('UserID', $user->UserID)->exists();
 
-        if($user != null && $alreadySubscribed){
-            return redirect()->back();
+        if ($alreadySubscribed) {
+            return redirect()->route('user.dashboard');
         }
-        
+
         $user->CurrentPackageID = -1;
-        $user->Status = 'Active';
+        $user->Status = User::STATUS_ACTIVE;
 
         $packages = Package::findOrFail($plan);
 
@@ -343,7 +468,7 @@ class UserAuthController extends Controller
         $paymentEndDate = $paymentStartDate->copy()->addHours(24);
         $nextRenewalDate = $paymentStartDate->copy()->addDays((int) $packages->Duration);
 
-        $paymentSubscription = PaymentSubscription::create([
+        PaymentSubscription::create([
             'UserID' => $user->UserID,
             'PackageID' => $user->CurrentPackageID,
             'PaymentMethodID' => 1,
@@ -370,15 +495,32 @@ class UserAuthController extends Controller
 
         $name = $user->FirstName . ' ' . $user->LastName;
 
-        $link = route('user.verify_email', [$user->UserID, sha1($user->Email)]);
-        $link_button = '<a href="' . $link . '" target="_blank">Verify Email</a>';
+        if (!$user->EmailVerified) {
+            $link = route('user.verify_email', [$user->UserID, sha1($user->Email)]);
+            $link_button = '<a href="' . $link . '" target="_blank">Verify Email</a>';
 
-        // Mail::to($user->Email)->send(new RegistrationVerificationMail(12, $user->FirstName.' '.$user->LastName,$link_button,$link));
-        Mail::to($user->Email)->send(new SendEmail(1, $name, null, $link_button, $link));
-        Mail::to(env('ADMIN_EMAIL'))->send(new AdminMail(10, 'Trial', $name, $user->Email));
+            try {
+                Mail::to($user->Email)->send(new SendEmail(1, $name, null, $link_button, $link));
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Trial verify email failed: ' . $e->getMessage());
+            }
+        }
+        // Mail::to(env('ADMIN_EMAIL'))->send(new AdminMail(10, 'Trial', $name, $user->Email, [
+        //     'phone' => $user->PhoneNumber,
+        //     'company' => $user->CompanyName,
+        //     'address' => $user->Address,
+        //     'city' => $user->City,
+        //     'state' => $user->State,
+        //     'zip' => $user->Zip,
+        //     'timezone' => $user->timezone,
+        //     'ip_address' => $user->ip_address,
+        // ]));
 
-        return redirect()->route('user.login')->with('success', 'Verification link sent to your email');
-        // return redirect()->route('user.login')->with('success', 'Account created successful!');
+        if (Auth::check()) {
+            return redirect()->route('user.dashboard')->with('success', 'Your trial has started successfully!');
+        }
+
+        return redirect()->route('user.login')->with('success', 'Your trial has started. You can now log in.');
     }
 
     public function verify_email($id, $hash)
@@ -397,33 +539,29 @@ class UserAuthController extends Controller
 
     public function resend_verify_email($userId)
     {
-
         try {
-
             $userId = Crypt::decrypt($userId);
 
             $user = User::findOrFail($userId);
 
             if ($user->EmailVerified) {
-                return redirect()->route('user.login')->with('error', 'Email already verified!');
+                return redirect()->route('user.package', ['user_id' => $user->UserID])
+                    ->with('error', 'Email already verified!');
             }
-            
+
             $name = $user->FirstName . ' ' . $user->LastName;
 
             $link = route('user.verify_email', [$user->UserID, sha1($user->Email)]);
             $link_button = '<a href="' . $link . '" target="_blank">Verify Email</a>';
 
-            if($user->CurrentPackageID == -1){
-
+            if ($user->CurrentPackageID == -1 || empty($user->CurrentPackageID)) {
                 Mail::to($user->Email)->send(new SendEmail(1, $name, null, $link_button, $link));
-
-            }else{
-             
+            } else {
                 $packages = Package::findOrFail($user->CurrentPackageID);
 
                 $paymentStartDate = Carbon::now();
                 $paymentEndDate = $paymentStartDate->copy()->addHours(24);
-                $nextRenewalDate = $paymentStartDate->copy()->addDays((int)$packages->Duration + 1);
+                $nextRenewalDate = $paymentStartDate->copy()->addDays((int) $packages->Duration + 1);
 
                 $data = [
                     'plan_name' => $packages->Name,
@@ -431,17 +569,18 @@ class UserAuthController extends Controller
                     'next_billing_date' => $nextRenewalDate->format('m/d/Y'),
                     'amount' => $packages->Price,
                     'verify_url' => $link,
-                    'verify_btn'=> $link_button
+                    'verify_btn' => $link_button,
                 ];
 
                 Mail::to($user->Email)->send(new SendNewSubMail(6, $name, $data));
             }
-            
-            return redirect()->back()->with('success', 'Verification link sent to your email');
-            
+
+            return redirect()->route('user.package', ['user_id' => $user->UserID])
+                ->with('success', 'Verification link sent to your email.');
         } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Resend verify email failed: ' . $e->getMessage());
+
             return redirect()->route('user.login')->with('error', 'Something went wrong!');
         }
-
     }
 }

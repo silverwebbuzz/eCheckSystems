@@ -233,6 +233,11 @@
                 {{ session('success') }}
             </div>
         @endif
+        @if (session('error'))
+            <div class="alert alert-danger">
+                {{ session('error') }}
+            </div>
+        @endif
         @if (session('profile_success'))
             <div class="alert alert-success">
                 {{ session('profile_success') }}
@@ -339,7 +344,7 @@
                                             <option value="active" {{ $user->Status == 'Active' ? 'selected' : '' }}>
                                                 Active
                                             </option>
-                                            <option value="inactive" {{ $user->Status == 'Inactive' ? 'selected' : '' }}>
+                                            <option value="inactive" {{ $user->Status != 'Active' ? 'selected' : '' }}>
                                                 Inactive
                                             </option>
                                         </select>
@@ -589,17 +594,24 @@
                                         then
                                     </div>
                                 @endif
-                                @if ($paymentSubscription->Status == 'Canceled')
+                                @if ($paymentSubscription->Status == 'Active' && !empty($paymentSubscription->CancelAt))
                                     <div class="alert alert-danger mt-3" role="alert">
-                                        Your subscription cancellation has been scheduled. The change will take effect after
-                                        your current plan ends. You will continue to enjoy your current plan benefits until
+                                        This subscription cancellation has been scheduled. The change will take effect after
+                                        the current plan ends. The user will continue to enjoy current plan benefits until
                                         then.
                                     </div>
                                 @endif
-                                <div class="d-grid w-100 mt-6">
+                                <div class="d-flex gap-2 flex-wrap mt-6">
                                     <button class="btn btn-primary" data-bs-toggle="modal"
                                         data-bs-target="#onboardingHorizontalSlideModal">Change
                                         Plan</button>
+                                    @if ($currentPackage != '-1' && empty($paymentSubscription->CancelAt) && !empty($user->SubID))
+                                        <form action="{{ route('admin.user.cancel-plan', $user->UserID) }}" method="POST"
+                                            onsubmit="return confirm('Cancel this user\'s subscription at period end?');">
+                                            @csrf
+                                            <button type="submit" class="btn btn-label-danger">Cancel Subscription</button>
+                                        </form>
+                                    @endif
                                 </div>
                             @endif
                         </div>

@@ -130,12 +130,12 @@
     </div>
     <div class="card mb-6">
                 <!-- Current Plan -->
-                <h5 class="card-header">Current Plan</h5>
+                <h5 class="card-header">Previous Plan</h5>
                 <div class="card-body">
                     <div class="row row-gap-6">
                         <div class="col-md-6 mb-1">
                             <div class="mb-6">
-                                <h6 class="mb-1">Your Current Plan is
+                                <h6 class="mb-1">Your previous plan was
                                     {{ $package_id == '-1' ? 'Trial' : $package->Name }} <span class="text-muted"> - {{ $package_id == '-1' ? 'Free' : '$'.$package->Price }}</span></h6>
                                 
                             </div>

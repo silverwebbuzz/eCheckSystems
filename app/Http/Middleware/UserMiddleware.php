@@ -22,22 +22,24 @@ class UserMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         if (Auth::check() && User::where('Email', Auth::user()->Email)->exists()) {
-            // $PaymentSubscription = PaymentSubscription::where('UserID', Auth::user()->UserID)->orderBy('PaymentSubscriptionID', 'desc')->first();
-            
-            // if ($PaymentSubscription) {
-            //     // $CancelAt = Carbon::parse($PaymentSubscription->CancelAt);
-            //     if ($PaymentSubscription->Status == 'Canceled') {
-            //         return redirect()->route('expired_sub');
-            //     }
-            //     if ($PaymentSubscription->Status == 'Pending') {
-            //         return redirect()->route('pending_sub');
-            //     }
-            // }
+            $user = Auth::user()->fresh();
+
+            if ($user->Status === User::STATUS_INACTIVE) {
+                Auth::logout();
+                return redirect()->route('user.login')->with('error', 'Your account is not active.');
+            }
+
+            if ($user->isPendingApproval()) {
+                Auth::logout();
+                return redirect()->route('user.login')->with(
+                    'error',
+                    'Your account is currently under review. You will receive an email once your account has been approved.'
+                );
+            }
+
             return $next($request);
         }
 
-
-        // Redirect if the user is not an admin
         return redirect()->route('user.login')->with('error', 'You do not have access.');
     }
 }
