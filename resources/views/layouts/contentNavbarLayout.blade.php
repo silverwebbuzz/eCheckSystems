@@ -66,8 +66,6 @@
                             <div class="{{ $container }} flex-grow-1 container-p-y">
                     @endif
 
-                    @include('_partials.user-account-notices')
-
                     @yield('content')
 
                 </div>
