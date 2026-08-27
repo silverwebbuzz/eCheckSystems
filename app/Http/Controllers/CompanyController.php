@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 use App\Models\Company;
 use App\Helpers\Helpers;
 use Carbon\Carbon;
@@ -95,7 +96,7 @@ class CompanyController extends Controller
     {  
         $validator = Validator::make($request->all(), [
             'name' => 'required' ,
-            'email' => 'nullable|email',
+            'email' => 'nullable|email|unique:Company,Email',
             'address1' => 'required',
             'city' => 'required',
             'state' => 'required',
@@ -104,6 +105,8 @@ class CompanyController extends Controller
             'routing_number' => Helpers::routingNumberRules(),
             'account_number' => 'required|numeric',
             'status' => 'required',
+        ], [
+            'email.unique' => 'This email is already used by another company. Please use a different email.',
         ]);
 
         if ($validator->fails()) {
@@ -180,7 +183,7 @@ class CompanyController extends Controller
     {  
         $validator = Validator::make($request->all(), [
             'name' => 'required' ,
-            'email' => 'nullable|email',
+            'email' => 'nullable|email|unique:Company,Email,' . $id . ',CompanyID',
             'address1' => 'required',
             'city' => 'required',
             'state' => 'required',
@@ -189,6 +192,8 @@ class CompanyController extends Controller
             'routing_number' => Helpers::routingNumberRules(),
             'account_number' => 'required|numeric',
             'status' => 'required',
+        ], [
+            'email.unique' => 'This email is already used by another company. Please use a different email.',
         ]);
 
         if ($validator->fails()) {
@@ -254,7 +259,11 @@ class CompanyController extends Controller
     {
          $validator = Validator::make($request->all(), [
             'name' => 'required' ,
-            'email' => 'nullable|email',
+            'email' => [
+                'nullable',
+                'email',
+                Rule::unique('Company', 'Email')->ignore($request->id, 'CompanyID'),
+            ],
             'address1' => 'required',
             'city' => 'required',
             'state' => 'required',
@@ -262,6 +271,8 @@ class CompanyController extends Controller
             'bank_name' => 'required',
             'routing_number' => Helpers::routingNumberRules(),
             'account_number' => 'required',
+        ], [
+            'email.unique' => 'This email is already used by another company. Please use a different email.',
         ]);
 
         if ($validator->fails()) {

@@ -932,8 +932,19 @@ class CheckController extends Controller
             $query = Checks::where('UserID', Auth::id());
 
             // Apply filter if "type" parameter exists (from JS)
+            // Payments Sent = Make Payment + generated QuickBooks checks (Generate flow unchanged)
             if ($request->has('type') && !empty($request->type)) {
-                $query->where('CheckType', $request->type);
+                if ($request->type === 'Make Payment') {
+                    $query->where(function ($q) {
+                        $q->where('CheckType', 'Make Payment')
+                            ->orWhere(function ($qb) {
+                                $qb->where('CheckType', 'QuickBooks')
+                                    ->where('Status', 'generated');
+                            });
+                    });
+                } else {
+                    $query->where('CheckType', $request->type);
+                }
             }
 
             // if (isset($request->entity_id) && $request->entity_id != null) {
@@ -946,9 +957,14 @@ class CheckController extends Controller
             // }
 
 
-            $query->orderBy('CheckID', 'desc');
-
+            // Keep custom sort: DataTables default column order would override query orderBy.
+            // Yajra requires order(callable) — order(false) is invalid and causes Ajax errors.
             return datatables()->of($query)
+                ->order(function ($query) {
+                    $query->reorder()
+                        ->orderByDesc('created_at')
+                        ->orderByDesc('CheckID');
+                })
                 ->addIndexColumn()
                 ->setRowId(function ($row) {
                     return $row->id;
@@ -1030,15 +1046,17 @@ class CheckController extends Controller
 
         $total_receive_check_amount = $currencyFormatter->format($total_receive_check_amount);
 
-        $total_send_check = Checks::where('UserID', Auth::id())
-            ->where('CheckType', 'Make Payment')
-            ->count();
+        $sentPaymentsQuery = Checks::where('UserID', Auth::id())
+            ->where(function ($q) {
+                $q->where('CheckType', 'Make Payment')
+                    ->orWhere(function ($qb) {
+                        $qb->where('CheckType', 'QuickBooks')
+                            ->where('Status', 'generated');
+                    });
+            });
 
-        $total_send_check_amount = Checks::where('UserID', Auth::id())
-            ->where('CheckType', 'Make Payment')
-            ->sum('Amount');
-
-        $total_send_check_amount = $currencyFormatter->format($total_send_check_amount);
+        $total_send_check = (clone $sentPaymentsQuery)->count();
+        $total_send_check_amount = $currencyFormatter->format((clone $sentPaymentsQuery)->sum('Amount'));
         // $total_receive_check_amount = $this->formatToK($total_receive_check_amount);
         // $total_send_check_amount = $this->formatToK($total_send_check_amount);
 
@@ -1166,6 +1184,10 @@ class CheckController extends Controller
         $check->Status = 'generated';
         $check->CheckPDF = $check_file;
         $check->ip_address = request()->ip();
+        // Bump so History (created_at DESC) shows this row first; CheckID stays same for QBO imports
+        if ($check->CheckType === 'QuickBooks' || $check->qbo_id) {
+            $check->created_at = now();
+        }
         $check->save();
 
         $this->syncCheckToQuickBooksOnGenerate($check);
@@ -1802,11 +1824,34 @@ class CheckController extends Controller
     public function send_check_email($id)
     {
         $check = Checks::find($id);
+        if (!$check) {
+            return redirect()->back()->with('fail', 'Check not found.');
+        }
+
         $data = [];
         $payor = Payors::withTrashed()->find($check->PayorID);
         $payee = Payors::withTrashed()->find($check->PayeeID);
-        $userSignature = UserSignature::withTrashed()->find($check->SignID);
-        $data['sender_name'] = $payor->Name;
+
+        // QuickBooks imports often have no PayorID — use mapped Company as sender
+        if ($payor) {
+            $data['sender_name'] = $payor->Name;
+        } elseif ($check->CheckType === 'QuickBooks' || $check->qbo_id || $check->Status === 'imported_from_qbo') {
+            $issuer = $this->resolveQboIssuerBank($check);
+            $user = Auth::user();
+            $fallback = trim(($user->CompanyName ?? '') ?: trim(($user->FirstName ?? '') . ' ' . ($user->LastName ?? ''))) ?: 'eCheck Systems';
+            $data['sender_name'] = $issuer['name'] ?? $fallback;
+        } else {
+            $user = Auth::user();
+            $data['sender_name'] = trim(($user->CompanyName ?? '') ?: trim(($user->FirstName ?? '') . ' ' . ($user->LastName ?? ''))) ?: 'eCheck Systems';
+        }
+
+        if (!$payee) {
+            return redirect()->back()->with('fail', 'Payee not found for this check.');
+        }
+        if (empty($payee->Email)) {
+            return redirect()->back()->with('fail', 'Payee email is missing. Please update the payee and try again.');
+        }
+
         $data['clinet_name'] = $payee->Name;
         $data['check_number'] = 'EC' . $check->CheckNumber;
         $data['memo'] = $check->Memo;

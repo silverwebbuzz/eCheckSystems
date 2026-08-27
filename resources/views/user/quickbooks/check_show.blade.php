@@ -18,7 +18,9 @@
         </div>
         <div class="d-flex gap-2">
             <a href="{{ route('qbo.checks') }}" class="btn btn-outline-secondary">Back</a>
-            <a href="{{ route('check_generate', $check->CheckID) }}" class="btn btn-primary">Generate / Print</a>
+            @if ($check->Status !== 'generated')
+                <a href="{{ route('check_generate', $check->CheckID) }}" class="btn btn-primary">Generate / Print</a>
+            @endif
         </div>
     </div>
 

@@ -246,10 +246,13 @@ class QuickBooksController extends Controller
                 })
                 ->addColumn('lines_count', fn ($row) => $row->lineItems->count())
                 ->addColumn('actions', function ($row) {
-                    $generate = route('check_generate', ['id' => $row->CheckID]);
                     $view = route('qbo.checks.show', ['id' => $row->CheckID]);
-                    return '<a href="' . $view . '" class="btn btn-sm btn-outline-secondary me-1">View</a>'
-                        . '<a href="' . $generate . '" class="btn btn-sm btn-primary">Generate / Print</a>';
+                    $html = '<a href="' . $view . '" class="btn btn-sm btn-outline-secondary me-1">View</a>';
+                    if ($row->Status !== 'generated') {
+                        $generate = route('check_generate', ['id' => $row->CheckID]);
+                        $html .= '<a href="' . $generate . '" class="btn btn-sm btn-primary">Generate / Print</a>';
+                    }
+                    return $html;
                 })
                 ->rawColumns(['status_badge', 'actions'])
                 ->make(true);
