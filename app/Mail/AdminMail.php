@@ -24,13 +24,15 @@ class AdminMail extends Mailable
     public $type;
     public $name;
     public $email;
+    public $extraData;
 
-    public function __construct($type, $plan, $name, $email)
+    public function __construct($type, $plan, $name, $email, $extraData = [])
     {
         $this->type = $type;
         $this->plan = $plan;
         $this->name = $name;
         $this->email = $email;
+        $this->extraData = $extraData;
     }
 
     public function build()
@@ -41,6 +43,14 @@ class AdminMail extends Mailable
             '{{ plan }}'  => $this->plan ?? '',
             '{{ name }}'  => $this->name ?? '',
             '{{ email }}'  => $this->email ?? '',
+            '{{ phone }}'  => $this->extraData['phone'] ?? '',
+            '{{ company }}'  => $this->extraData['company'] ?? '',
+            '{{ address }}'  => $this->extraData['address'] ?? '',
+            '{{ city }}'  => $this->extraData['city'] ?? '',
+            '{{ state }}'  => $this->extraData['state'] ?? '',
+            '{{ zip }}'  => $this->extraData['zip'] ?? '',
+            '{{ timezone }}'  => $this->extraData['timezone'] ?? '',
+            '{{ ip_address }}'  => $this->extraData['ip_address'] ?? '',
         ];
 
         $fields = ['subject', 'content', 'body1', 'body2'];

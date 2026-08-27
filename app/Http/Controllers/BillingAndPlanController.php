@@ -181,7 +181,7 @@ class BillingAndPlanController extends Controller
             ];
 
             Mail::to($user->Email)->send(new SendCancelSubMail(9, $user_name, $data));
-            return redirect()->route('billing_and_plan')->with('success', 'Your plan has been canceled');
+            return redirect()->route('billing_and_plan')->with('success', 'Your plan has been scheduled');
         } else {
             return redirect()->route('billing_and_plan')->with('error', 'Something went wrong');
         }

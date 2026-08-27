@@ -617,14 +617,12 @@
      $link = route('user.resend_verify_email', $enc_user_id);
 
 @endphp
-<div class="row w-auto m-3">
-    <div class="col">
-        <div class="alert mt-4 mb-0  @if (session('verify_error')) alert-danger animated-alert @else alert-warning @endif" role="alert">
-           <i class="ti ti-mail-x me-2"></i>
-            Your email address is not verified. 
-            <a href="{{ $link }}" class="alert-link ms-1">Click here to resend verification link.</a>
-        </div>
-    </div>
+<div class="container w-100  ">
+    <div class="alert mt-4 mb-0 w-100  @if (session('verify_error')) alert-danger animated-alert @else alert-warning @endif" role="alert">
+        <i class="ti ti-mail-x me-2"></i>
+         Your email address is not verified. 
+         <a href="{{ $link }}" class="alert-link ms-1">Click here to resend verification link.</a>
+     </div>
 </div>
 @endif
 <!-- / Navbar -->

@@ -227,6 +227,7 @@ Route::middleware([CheckBlockedIP::class])->group(function () {
         Route::post('admin/user/change-password', [AdminDashboardController::class, 'changeUserPassword'])->name('admin.user.change-password');
         Route::delete('/admin/users/delete/{id}', [AdminDashboardController::class, 'user_delete'])->name('admin.user.delete');
         Route::post('admin/user/plan', [AdminDashboardController::class, 'change_plan'])->name('admin.user.plan');
+        Route::post('admin/user/cancel-plan/{id}', [AdminDashboardController::class, 'cancelUserPlan'])->name('admin.user.cancel-plan');
         Route::get('/admin/users/profile/edit/{id}', [AdminDashboardController::class, 'user_profile_edit'])->name('admin.user_profile_edit');
         Route::get('/admin/users/plan/upgrade/{id}', [AdminDashboardController::class, 'upgragde_plan'])->name('admin.user_upgragde_plan');
         Route::get('/company/{id}', [AdminDashboardController::class, 'company'])->name('admin.user.company');
@@ -238,6 +239,8 @@ Route::middleware([CheckBlockedIP::class])->group(function () {
         Route::get('/admin/email-template/edit/{id}', [EmailTemplateController::class, 'edit'])->name('admin.email-template-edit');
         Route::post('/admin/email-template/update/{id}', [EmailTemplateController::class, 'update'])->name('admin.email-template-update');
         Route::post('/admin/users/change-status', [AdminDashboardController::class, 'changeStatus'])->name('changeStatus');
+        Route::post('/admin/users/approve', [AdminDashboardController::class, 'approveClient'])->name('admin.approveClient');
+        Route::post('/admin/users/reject', [AdminDashboardController::class, 'rejectClient'])->name('admin.rejectClient');
         Route::get('/admin/setting', [SettingController::class, 'index'])->name('admin.setting');
         Route::post('/update-setting', [SettingController::class, 'updateSettings'])->name('admin.update_setting');
 
@@ -274,6 +277,10 @@ Route::middleware([CheckBlockedIP::class])->group(function () {
     Route::get('reset-password/{token}', [UserAuthController::class, 'showResetForm'])->name('user.showResetForm');
     Route::post('reset-password', [UserAuthController::class, 'resetPassword'])->name('user.resetPassword');
     Route::middleware([UserMiddleware::class])->group(function () {
+
+        Route::get('/account-choice', [UserAuthController::class, 'accountChoice'])->name('user.account-choice');
+        Route::post('/account-choice/trial', [UserAuthController::class, 'accountChoiceTrial'])->name('user.account-choice.trial');
+        Route::get('/account-choice/paid', [UserAuthController::class, 'accountChoicePaid'])->name('user.account-choice.paid');
 
         Route::middleware([EnsurePaymentIsComplete::class])->group(function () {
 
