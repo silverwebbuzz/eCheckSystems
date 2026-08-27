@@ -134,6 +134,7 @@
                 processing: true,
                 serverSide: true,
                 pageLength: 10,
+                ordering: false,
                 ajax: {
                     url: "{{ route('check_history') }}", // Make sure the route is correct
                     data: function(d) {
