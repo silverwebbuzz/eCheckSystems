@@ -886,7 +886,7 @@ class CheckController extends Controller
             // ->setPaper([0, 0, 1000, 1200])
             ->setOptions(['dpi' => 150])
             ->set_option('isHtml5ParserEnabled', true)
-            ->set_option('isRemoteEnabled', false);
+            ->set_option('isRemoteEnabled', true);
 
         // $pdf->setEncryption( '1234', '123', ['print'] );
         // Define the file path where you want to save the PDF
