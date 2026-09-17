@@ -57,7 +57,7 @@ class Checks extends Model
 
     public function payor()
     {
-        return $this->belongsTo(Payors::class, 'PayorID', 'EntityID');
+        return $this->belongsTo(Payors::class, 'PayorID', 'EntityID')->withTrashed();
     }
 
     public function lineItems()
@@ -72,10 +72,6 @@ class Checks extends Model
 
     public function scopeQuickBooks($query)
     {
-        return $query->where(function ($q) {
-            $q->where('CheckType', 'QuickBooks')
-                ->orWhereNotNull('qbo_id')
-                ->orWhere('Status', 'imported_from_qbo');
-        });
+        return $query->whereNotNull('qbo_id');
     }
 }

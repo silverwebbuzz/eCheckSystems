@@ -22,7 +22,9 @@
         <div class="card-header d-flex justify-content-between align-items-center">
             <div>
                 <h5 class="mb-1">QuickBooks Checks</h5>
-                <small class="text-muted">Only QuickBooks <strong>Check</strong> transactions (not credit card or cash expenses).</small>
+                <small class="text-muted">
+                    QBO <strong>Send Payment</strong> (Checks) and <strong>Receive Payment</strong> (Sales Receipts), classified by type.
+                </small>
             </div>
             <div class="d-flex gap-2">
                 <a href="{{ route('qbo.settings') }}" class="btn btn-outline-secondary">Settings</a>
@@ -38,8 +40,9 @@
                     <thead>
                         <tr>
                             <th>#</th>
+                            <th>Type</th>
                             <th>Check #</th>
-                            <th>Payee</th>
+                            <th>Party</th>
                             <th>Amount</th>
                             <th>Date</th>
                             <th>Status</th>
@@ -62,8 +65,9 @@
             ajax: '{{ route('qbo.checks') }}',
             columns: [
                 { data: 'DT_RowIndex', orderable: false, searchable: false },
+                { data: 'txn_type', orderable: false, searchable: false },
                 { data: 'CheckNumber' },
-                { data: 'payee_name' },
+                { data: 'party_name' },
                 { data: 'amount_fmt' },
                 { data: 'issue_date' },
                 { data: 'status_badge' },

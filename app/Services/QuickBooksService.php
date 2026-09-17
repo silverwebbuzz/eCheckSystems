@@ -12,7 +12,10 @@ use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use QuickBooksOnline\API\DataService\DataService;
+use QuickBooksOnline\API\Facades\Customer;
+use QuickBooksOnline\API\Facades\Item;
 use QuickBooksOnline\API\Facades\Purchase;
+use QuickBooksOnline\API\Facades\SalesReceipt;
 
 class QuickBooksService
 {
@@ -310,7 +313,7 @@ class QuickBooksService
         $payload = [
             'UserID' => $userId,
             'PayeeID' => $payeeId,
-            'CheckType' => 'QuickBooks',
+            'CheckType' => 'Make Payment',
             'Amount' => $amount,
             'ServiceFees' => 0,
             'Total' => $amount,
@@ -347,6 +350,79 @@ class QuickBooksService
         return [
             'created' => $created,
             'warning' => $conflict ? "Check #{$docNumber} already exists locally (QBO Id {$qboId})" : null,
+        ];
+    }
+
+    /**
+     * Import QBO SalesReceipt as Process Payment for QuickBooks Checks (Receive).
+     * Kept out of the local Receive Payment list until generated (via qbo_id + imported status).
+     */
+    protected function upsertLocalCheckFromQboSalesReceipt(
+        $receipt,
+        QBOCompany $qboCompany,
+        int $userId,
+        DataService $dataService
+    ): array {
+        $qboId = (string) ($receipt->Id ?? '');
+        $docNumber = (string) ($receipt->DocNumber ?? '');
+        $amount = (float) ($receipt->TotalAmt ?? 0);
+        $txnDate = $receipt->TxnDate ?? now()->toDateString();
+        $memo = (string) ($receipt->PrivateNote ?? '');
+
+        $payorId = $this->resolveOrCreatePayorFromCustomer($receipt, $userId, $dataService);
+
+        $existing = Checks::where('UserID', $userId)->where('qbo_id', $qboId)->first();
+
+        $conflict = false;
+        if ($docNumber !== '') {
+            $conflictQuery = Checks::where('UserID', $userId)
+                ->where('CheckNumber', $docNumber);
+            if ($existing) {
+                $conflictQuery->where('CheckID', '!=', $existing->CheckID);
+            }
+            $conflict = $conflictQuery->exists();
+        }
+
+        $payload = [
+            'UserID' => $userId,
+            'PayorID' => $payorId,
+            'PayeeID' => $existing?->PayeeID,
+            'CheckType' => 'Process Payment',
+            'Amount' => $amount,
+            'ServiceFees' => 0,
+            'Total' => $amount,
+            'CheckNumber' => $docNumber !== '' ? $docNumber : ('QBO-' . $qboId),
+            'IssueDate' => Carbon::parse($txnDate)->format('Y-m-d H:i:s'),
+            'ExpiryDate' => Carbon::parse($txnDate)->format('Y-m-d'),
+            'Memo' => $memo,
+            'qbo_id' => $qboId,
+            'qbo_sync_status' => 'imported',
+            'qbo_print_later' => false,
+            'qbo_company_id' => $qboCompany->id,
+            'qbo_doc_number' => $docNumber,
+            'check_number_conflict' => $conflict,
+            'is_seen' => 0,
+        ];
+
+        if (!$existing || $existing->Status !== 'generated') {
+            $payload['Status'] = 'imported_from_qbo';
+        }
+
+        if ($existing) {
+            $existing->update($payload);
+            $check = $existing;
+            $created = false;
+        } else {
+            $payload['created_at'] = now();
+            $check = Checks::create($payload);
+            $created = true;
+        }
+
+        $this->syncLineItemsFromSalesReceipt($check, $receipt, $dataService);
+
+        return [
+            'created' => $created,
+            'warning' => $conflict ? "Check #{$docNumber} already exists locally (QBO SalesReceipt Id {$qboId})" : null,
         ];
     }
 
@@ -508,6 +584,100 @@ class QuickBooksService
         return $payee->EntityID;
     }
 
+    /**
+     * Resolve SalesReceipt CustomerRef into a local Payor (Receive Payment).
+     */
+    protected function resolveOrCreatePayorFromCustomer($receipt, int $userId, DataService $dataService): ?int
+    {
+        $parsed = $this->parseQboRef($receipt->CustomerRef ?? null);
+        $entityId = $parsed['id'];
+        $entityName = $parsed['name'];
+        $email = null;
+        $address1 = null;
+        $city = null;
+        $state = null;
+        $zip = null;
+
+        if (!$entityId && !$entityName) {
+            return null;
+        }
+
+        if ($entityId) {
+            try {
+                $remote = $dataService->FindById('Customer', $entityId);
+                if ($remote) {
+                    $resolved = $remote->DisplayName
+                        ?? $remote->FullyQualifiedName
+                        ?? trim((string) (($remote->GivenName ?? '') . ' ' . ($remote->FamilyName ?? '')));
+                    if (is_string($resolved) && trim($resolved) !== '') {
+                        $entityName = trim($resolved);
+                    }
+
+                    $emailAddr = $remote->PrimaryEmailAddr ?? null;
+                    if (is_object($emailAddr) && !empty($emailAddr->Address)) {
+                        $email = (string) $emailAddr->Address;
+                    }
+
+                    $addr = $remote->BillAddr ?? $remote->PrimaryAddr ?? null;
+                    if (is_object($addr)) {
+                        $address1 = $addr->Line1 ?? $address1;
+                        $city = $addr->City ?? $city;
+                        $state = $addr->CountrySubDivisionCode ?? $state;
+                        $zip = $addr->PostalCode ?? $zip;
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('QBO Customer fetch failed: ' . $e->getMessage());
+            }
+        }
+
+        if (!$entityName && $entityId) {
+            $entityName = 'QBO Customer #' . $entityId;
+        }
+
+        if (!$entityName) {
+            return null;
+        }
+
+        $query = Payors::where('UserID', $userId)->where('Type', 'Payor');
+        $payor = (clone $query)->where('Name', $entityName)->first();
+
+        if (!$payor && $email) {
+            $payor = (clone $query)->where('Email', $email)->first();
+        }
+
+        if ($payor) {
+            $payor->update(array_filter([
+                'Email' => $email ?: $payor->Email,
+                'Address1' => $address1 ?: $payor->Address1,
+                'City' => $city ?: $payor->City,
+                'State' => $state ?: $payor->State,
+                'Zip' => $zip ?: $payor->Zip,
+                'Category' => $payor->Category ?: 'RP',
+                'Status' => $payor->Status ?: 'Active',
+            ], fn ($v) => $v !== null && $v !== ''));
+
+            return $payor->EntityID;
+        }
+
+        $payor = Payors::create([
+            'UserID' => $userId,
+            'Name' => $entityName,
+            'Type' => 'Payor',
+            'Category' => 'RP',
+            'Email' => $email,
+            'Address1' => $address1,
+            'City' => $city,
+            'State' => $state,
+            'Zip' => $zip,
+            'Status' => 'Active',
+            'CreatedAt' => now(),
+            'UpdatedAt' => now(),
+        ]);
+
+        return $payor->EntityID;
+    }
+
     protected function syncLineItemsFromPurchase(Checks $check, $purchase, DataService $dataService): void
     {
         CheckLineItem::where('CheckID', $check->CheckID)->delete();
@@ -564,6 +734,140 @@ class QuickBooksService
         }
     }
 
+    protected function syncLineItemsFromSalesReceipt(Checks $check, $receipt, DataService $dataService): void
+    {
+        CheckLineItem::where('CheckID', $check->CheckID)->delete();
+
+        $lines = $receipt->Line ?? [];
+        if (!is_array($lines) && !($lines instanceof \Traversable)) {
+            $lines = $lines ? [$lines] : [];
+        }
+
+        $lineNo = 1;
+        foreach ($lines as $line) {
+            $detailType = (string) ($line->DetailType ?? '');
+            if (in_array($detailType, ['SubTotalLineDetail', 'DescriptionOnly'], true)) {
+                continue;
+            }
+
+            $salesDetail = $line->SalesItemLineDetail ?? null;
+            if (!$salesDetail && $detailType !== 'SalesItemLineDetail') {
+                // Still store amount-only rows when present
+                if ((float) ($line->Amount ?? 0) <= 0) {
+                    continue;
+                }
+            }
+
+            $itemRef = $this->parseQboRef($this->extractSalesItemRef($line, $salesDetail));
+
+            // Category = Product/Service name only (never Description / memo)
+            $productName = '';
+            if (!empty($itemRef['id'])) {
+                $productName = $this->resolveItemName($dataService, (string) $itemRef['id']);
+            }
+            if ($productName === '' && !empty($itemRef['name'])) {
+                $productName = trim((string) $itemRef['name']);
+            }
+
+            Log::info('QBO SalesReceipt line mapped', [
+                'check_id' => $check->CheckID,
+                'qbo_receipt_id' => (string) ($receipt->Id ?? ''),
+                'item_ref' => $itemRef,
+                'product_service' => $productName !== '' ? $productName : null,
+                'description' => (string) ($line->Description ?? ''),
+            ]);
+
+            CheckLineItem::create([
+                'CheckID' => $check->CheckID,
+                'line_no' => $lineNo++,
+                'qbo_line_id' => isset($line->Id) ? (string) $line->Id : null,
+                'qbo_account_id' => $itemRef['id'] ?? null,
+                'account_name' => $productName !== '' ? $productName : null,
+                'description' => (string) ($line->Description ?? ''),
+                'amount' => (float) ($line->Amount ?? 0),
+                'billable' => false,
+                'tax' => false,
+                'customer_name' => null,
+                'customer_ref' => null,
+                'source' => 'qbo',
+            ]);
+        }
+    }
+
+    /**
+     * Pull ItemRef (Product/Service) from a Sales Receipt line across SDK shapes.
+     */
+    protected function extractSalesItemRef($line, $salesDetail = null): mixed
+    {
+        $detail = $salesDetail ?? ($line->SalesItemLineDetail ?? null);
+
+        if (is_array($detail)) {
+            return $detail['ItemRef'] ?? $detail['itemRef'] ?? null;
+        }
+
+        if (is_object($detail)) {
+            if (isset($detail->ItemRef)) {
+                return $detail->ItemRef;
+            }
+            if (isset($detail->itemRef)) {
+                return $detail->itemRef;
+            }
+        }
+
+        // Some SDK payloads place the typed detail on AnyIntuitObject
+        $any = $line->AnyIntuitObject ?? null;
+        if (is_object($any) && isset($any->ItemRef)) {
+            return $any->ItemRef;
+        }
+        if (is_array($any)) {
+            return $any['ItemRef'] ?? null;
+        }
+
+        return null;
+    }
+
+    protected function resolveItemName(DataService $dataService, string $itemId): string
+    {
+        $cacheKey = 'item:' . $itemId;
+        if (isset($this->accountNameCache[$cacheKey])) {
+            return $this->accountNameCache[$cacheKey];
+        }
+
+        try {
+            $item = $dataService->FindById('Item', $itemId);
+            if ($error = $dataService->getLastError()) {
+                Log::warning('QBO item FindById error: ' . ($error->getResponseBody() ?: $error->getIntuitErrorMessage()), [
+                    'item_id' => $itemId,
+                ]);
+                $this->accountNameCache[$cacheKey] = '';
+
+                return '';
+            }
+
+            // Prefer Name (Product/Service label), e.g. "Hours" — not Description
+            $name = '';
+            if ($item) {
+                $name = trim((string) ($item->Name ?? ''));
+                if ($name === '') {
+                    $fqn = trim((string) ($item->FullyQualifiedName ?? ''));
+                    if ($fqn !== '') {
+                        $name = str_contains($fqn, ':')
+                            ? trim(substr($fqn, strrpos($fqn, ':') + 1))
+                            : $fqn;
+                    }
+                }
+            }
+            $this->accountNameCache[$cacheKey] = $name;
+
+            return $name;
+        } catch (\Throwable $e) {
+            Log::warning('QBO item name resolve failed: ' . $e->getMessage(), ['item_id' => $itemId]);
+            $this->accountNameCache[$cacheKey] = '';
+
+            return '';
+        }
+    }
+
     protected function resolveAccountName(DataService $dataService, string $accountId): string
     {
         if (isset($this->accountNameCache[$accountId])) {
@@ -588,10 +892,32 @@ class QuickBooksService
     }
 
     /**
-     * Push a local check to QBO as a Check (Purchase PaymentType=Check).
-     * Called on generate.
+     * Push a local check to QBO on generate, routed by CheckType:
+     * - Make Payment  → QBO Checks (Expense / created checks) via Purchase
+     * - Process Payment → QBO Sales / receive payment via SalesReceipt
      */
     public function pushCheckToQbo(Checks $check, QBOCompany $qboCompany): Checks
+    {
+        if ($check->CheckType === 'Process Payment') {
+            return $this->pushProcessPaymentToQbo($check, $qboCompany);
+        }
+
+        if ($check->CheckType === 'Make Payment') {
+            return $this->pushMakePaymentToQbo($check, $qboCompany);
+        }
+
+        Log::info('QBO push skipped — unsupported CheckType', [
+            'check_id' => $check->CheckID,
+            'check_type' => $check->CheckType,
+        ]);
+
+        return $check;
+    }
+
+    /**
+     * Make Payment only → QBO Check (Purchase PaymentType=Check) under Expenses / Checks.
+     */
+    protected function pushMakePaymentToQbo(Checks $check, QBOCompany $qboCompany): Checks
     {
         if (!$qboCompany->default_bank_account_id) {
             throw new Exception('Please set a default bank account in Settings → QuickBooks before pushing checks.');
@@ -650,7 +976,7 @@ class QuickBooksService
         }
 
         if ($error = $dataService->getLastError()) {
-            throw new Exception($error->getResponseBody() ?: 'Failed to push check to QuickBooks');
+            throw new Exception($error->getResponseBody() ?: 'Failed to push Make Payment check to QuickBooks');
         }
 
         $check->update([
@@ -664,10 +990,130 @@ class QuickBooksService
             'user_id' => $check->UserID,
             'qbo_company_id' => $qboCompany->id,
             'direction' => 'outbound',
-            'action' => $check->qbo_id ? 'update_check' : 'push_check',
+            'action' => $isUpdate ? 'update_check' : 'push_check',
             'status' => 'success',
             'records' => 1,
-            'message' => 'Check ' . $check->CheckID . ' synced to QBO Id ' . ($result->Id ?? ''),
+            'message' => 'Make Payment check ' . $check->CheckID . ' synced to QBO Check (Purchase) Id ' . ($result->Id ?? ''),
+        ]);
+
+        return $check->fresh();
+    }
+
+    /**
+     * Process Payment only → QBO SalesReceipt under Sales / receive payment (not Expenses Checks).
+     */
+    protected function pushProcessPaymentToQbo(Checks $check, QBOCompany $qboCompany): Checks
+    {
+        if (!$qboCompany->default_bank_account_id) {
+            throw new Exception('Please set a default bank account in Settings → QuickBooks before pushing checks.');
+        }
+
+        $dataService = $this->dataServiceForCompany($qboCompany);
+        $bankAccount = $this->verifyBankAccountId($dataService, (string) $qboCompany->default_bank_account_id);
+        if (!$bankAccount) {
+            throw new Exception('Default bank account is no longer valid in QuickBooks. Please reselect it in Settings → QuickBooks.');
+        }
+
+        $customerEntity = null;
+        if ($check->PayorID) {
+            $customerEntity = Payors::find($check->PayorID);
+        }
+        if (!$customerEntity && $check->PayeeID) {
+            $customerEntity = Payors::find($check->PayeeID);
+        }
+        if (!$customerEntity) {
+            throw new Exception('Process Payment checks need a Payor (customer) before syncing to QuickBooks Sales.');
+        }
+
+        $customerId = $this->findOrCreateCustomer($dataService, $customerEntity);
+        if (!$customerId) {
+            throw new Exception('Unable to create or find the customer in QuickBooks for this Process Payment.');
+        }
+
+        $item = $this->findOrCreateReceivePaymentItem($dataService);
+        $txnDate = $check->ExpiryDate
+            ? Carbon::parse($check->ExpiryDate)->toDateString()
+            : Carbon::parse($check->IssueDate)->toDateString();
+
+        $payload = [
+            'CustomerRef' => [
+                'value' => $customerId,
+            ],
+            'DepositToAccountRef' => [
+                'value' => $bankAccount['id'],
+                'name' => $bankAccount['name'],
+            ],
+            'TxnDate' => $txnDate,
+            'DocNumber' => (string) $check->CheckNumber,
+            'PrivateNote' => (string) ($check->Memo ?? ''),
+            'TotalAmt' => (float) $check->Total,
+            'Line' => [
+                [
+                    'Amount' => (float) $check->Total,
+                    'DetailType' => 'SalesItemLineDetail',
+                    'Description' => (string) ($check->Memo ?: 'Check received via Echeck Systems'),
+                    'SalesItemLineDetail' => [
+                        'ItemRef' => [
+                            'value' => $item['id'],
+                            'name' => $item['name'],
+                        ],
+                        'Qty' => 1,
+                        'UnitPrice' => (float) $check->Total,
+                    ],
+                ],
+            ],
+        ];
+
+        $wasUpdate = false;
+        $result = null;
+
+        if ($check->qbo_id) {
+            $existingReceipt = $dataService->FindById('SalesReceipt', $check->qbo_id);
+            if ($existingReceipt) {
+                $payload['Id'] = $check->qbo_id;
+                $payload['SyncToken'] = $existingReceipt->SyncToken;
+                $resource = SalesReceipt::update($existingReceipt, $payload);
+                $result = $dataService->Update($resource);
+                $wasUpdate = true;
+            } else {
+                // Older Process Payment may have been pushed as an expense Check — replace it
+                $existingPurchase = $dataService->FindById('Purchase', $check->qbo_id);
+                if ($existingPurchase) {
+                    $dataService->Delete($existingPurchase);
+                    if ($error = $dataService->getLastError()) {
+                        Log::warning('Failed to remove old QBO Purchase before SalesReceipt push', [
+                            'qbo_id' => $check->qbo_id,
+                            'body' => $error->getResponseBody(),
+                        ]);
+                    }
+                }
+                $resource = SalesReceipt::create($payload);
+                $result = $dataService->Add($resource);
+            }
+        } else {
+            $resource = SalesReceipt::create($payload);
+            $result = $dataService->Add($resource);
+        }
+
+        if ($error = $dataService->getLastError()) {
+            throw new Exception($error->getResponseBody() ?: 'Failed to push Process Payment to QuickBooks Sales');
+        }
+
+        $check->update([
+            'qbo_id' => (string) ($result->Id ?? $check->qbo_id),
+            'qbo_sync_status' => 'pushed',
+            'qbo_company_id' => $qboCompany->id,
+            'qbo_doc_number' => (string) ($result->DocNumber ?? $check->CheckNumber),
+        ]);
+
+        QboSyncLog::create([
+            'user_id' => $check->UserID,
+            'qbo_company_id' => $qboCompany->id,
+            'direction' => 'outbound',
+            'action' => $wasUpdate ? 'update_sales_receipt' : 'push_sales_receipt',
+            'status' => 'success',
+            'records' => 1,
+            'message' => 'Process Payment check ' . $check->CheckID . ' synced to QBO SalesReceipt Id ' . ($result->Id ?? ''),
         ]);
 
         return $check->fresh();
@@ -957,6 +1403,140 @@ class QuickBooksService
         return isset($result->Id) ? (string) $result->Id : null;
     }
 
+    protected function findOrCreateCustomer(DataService $dataService, Payors $entity): ?string
+    {
+        $name = addslashes($entity->Name);
+        $existing = $dataService->Query("SELECT * FROM Customer WHERE DisplayName = '{$name}' MAXRESULTS 1");
+        if ($existing && isset($existing[0]->Id)) {
+            return (string) $existing[0]->Id;
+        }
+
+        $customerData = [
+            'DisplayName' => $entity->Name,
+            'PrimaryEmailAddr' => ['Address' => $entity->Email],
+            'BillAddr' => array_filter([
+                'Line1' => $entity->Address1,
+                'City' => $entity->City,
+                'CountrySubDivisionCode' => $entity->State,
+                'PostalCode' => $entity->Zip,
+            ]),
+        ];
+
+        $customer = Customer::create($customerData);
+        $result = $dataService->Add($customer);
+
+        if ($dataService->getLastError()) {
+            Log::warning('QBO customer create failed', ['body' => $dataService->getLastError()->getResponseBody()]);
+            return null;
+        }
+
+        return isset($result->Id) ? (string) $result->Id : null;
+    }
+
+    /**
+     * Service item used on SalesReceipt lines for Process Payment checks.
+     *
+     * @return array{id: string, name: string}
+     */
+    protected function findOrCreateReceivePaymentItem(DataService $dataService): array
+    {
+        $itemName = 'Check Received';
+        $safeName = addslashes($itemName);
+        $existing = $dataService->Query("SELECT * FROM Item WHERE Name = '{$safeName}' MAXRESULTS 1");
+        if ($existing && isset($existing[0]->Id)) {
+            return [
+                'id' => (string) $existing[0]->Id,
+                'name' => (string) ($existing[0]->Name ?? $itemName),
+            ];
+        }
+
+        $services = $dataService->Query("SELECT * FROM Item WHERE Name = 'Services' MAXRESULTS 1");
+        if ($services && isset($services[0]->Id)) {
+            return [
+                'id' => (string) $services[0]->Id,
+                'name' => (string) ($services[0]->Name ?? 'Services'),
+            ];
+        }
+
+        $incomeAccount = $this->findIncomeAccount($dataService);
+        if (!$incomeAccount) {
+            throw new Exception('No Income account found in QuickBooks. Create an Income account, then retry Process Payment sync.');
+        }
+
+        $item = Item::create([
+            'Name' => $itemName,
+            'Type' => 'Service',
+            'IncomeAccountRef' => [
+                'value' => $incomeAccount['id'],
+                'name' => $incomeAccount['name'],
+            ],
+        ]);
+        $result = $dataService->Add($item);
+
+        if ($error = $dataService->getLastError()) {
+            throw new Exception($error->getResponseBody() ?: 'Failed to create QuickBooks item for Process Payment');
+        }
+
+        return [
+            'id' => (string) ($result->Id ?? ''),
+            'name' => (string) ($result->Name ?? $itemName),
+        ];
+    }
+
+    /**
+     * @return array{id: string, name: string}|null
+     */
+    protected function findIncomeAccount(DataService $dataService): ?array
+    {
+        $accounts = $dataService->Query("SELECT * FROM Account MAXRESULTS 1000");
+        if ($error = $dataService->getLastError()) {
+            throw new Exception($error->getResponseBody() ?: 'Failed to load QuickBooks accounts');
+        }
+
+        $preferredNames = ['services', 'sales of product income', 'sales', 'income', 'other income'];
+        $incomeAccounts = [];
+
+        foreach ($accounts ?: [] as $account) {
+            if (!$this->isActiveQboAccount($account)) {
+                continue;
+            }
+            $type = strtolower((string) ($account->AccountType ?? ''));
+            if ($type !== 'income' && $type !== 'other income') {
+                continue;
+            }
+            $incomeAccounts[] = [
+                'id' => (string) ($account->Id ?? ''),
+                'name' => (string) ($account->FullyQualifiedName ?? $account->Name ?? ''),
+                'type' => $type,
+            ];
+        }
+
+        foreach ($preferredNames as $preferred) {
+            foreach ($incomeAccounts as $acct) {
+                if ($acct['id'] === '') {
+                    continue;
+                }
+                if (strcasecmp($acct['name'], $preferred) === 0) {
+                    return $acct;
+                }
+                $short = str_contains($acct['name'], ':')
+                    ? trim(substr($acct['name'], strrpos($acct['name'], ':') + 1))
+                    : $acct['name'];
+                if (strcasecmp($short, $preferred) === 0) {
+                    return $acct;
+                }
+            }
+        }
+
+        foreach ($incomeAccounts as $acct) {
+            if ($acct['id'] !== '') {
+                return $acct;
+            }
+        }
+
+        return null;
+    }
+
     public function deleteCheckInQbo(Checks $check, QBOCompany $qboCompany): void
     {
         if (!$check->qbo_id) {
@@ -966,13 +1546,16 @@ class QuickBooksService
         $dataService = $this->dataServiceForCompany($qboCompany);
         $existing = $dataService->FindById('Purchase', $check->qbo_id);
         if (!$existing) {
+            $existing = $dataService->FindById('SalesReceipt', $check->qbo_id);
+        }
+        if (!$existing) {
             return;
         }
 
         $dataService->Delete($existing);
 
         if ($error = $dataService->getLastError()) {
-            throw new Exception($error->getResponseBody() ?: 'Failed to delete QBO check');
+            throw new Exception($error->getResponseBody() ?: 'Failed to delete QBO transaction');
         }
 
         QboSyncLog::create([
@@ -1003,15 +1586,15 @@ class QuickBooksService
     }
 
     /**
-     * Parse Intuit webhook JSON into Purchase events for inbound queue jobs.
+     * Parse Intuit webhook JSON into Purchase / SalesReceipt events for inbound queue jobs.
      * Webhooks only notify — each event is fetched later by ImportQuickBooksCheckJob.
      *
-     * @return array<int, array{realmId: string, id: string, operation: string}>
+     * @return array<int, array{realmId: string, id: string, operation: string, entity: string}>
      */
     public function extractWebhookPurchaseEvents(array $payload): array
     {
         $events = [];
-        $allowed = array_map('strtolower', config('quickbooks.webhook_entities', ['Purchase']));
+        $allowed = array_map('strtolower', config('quickbooks.webhook_entities', ['Purchase', 'SalesReceipt']));
 
         foreach ($payload['eventNotifications'] ?? [] as $notification) {
             $realmId = (string) ($notification['realmId'] ?? '');
@@ -1036,6 +1619,7 @@ class QuickBooksService
                     'realmId' => $realmId,
                     'id' => $id,
                     'operation' => $operation,
+                    'entity' => $name !== '' ? $name : 'Purchase',
                 ];
             }
         }
@@ -1044,10 +1628,14 @@ class QuickBooksService
     }
 
     /**
-     * Import or delete a single QBO Purchase on the inbound queue.
+     * Import or delete a single QBO Purchase (Check) or SalesReceipt (Receive Payment).
      */
-    public function processWebhookEntity(string $realmId, string $purchaseId, string $operation): array
-    {
+    public function processWebhookEntity(
+        string $realmId,
+        string $entityId,
+        string $operation,
+        string $entity = 'Purchase'
+    ): array {
         $qboCompany = QBOCompany::where('realm_id', $realmId)
             ->where('status', 'connected')
             ->first();
@@ -1058,14 +1646,19 @@ class QuickBooksService
         }
 
         $operation = strtolower($operation);
+        $entity = strtolower($entity);
 
         if (in_array($operation, ['delete', 'void'], true)) {
-            $this->deleteLocalCheckByQboId($purchaseId, (int) $qboCompany->user_id);
+            $this->deleteLocalCheckByQboId($entityId, (int) $qboCompany->user_id);
             return ['imported' => true, 'action' => 'deleted'];
         }
 
         if (in_array($operation, ['create', 'update', 'merge'], true)) {
-            return $this->importPurchaseById($qboCompany, $purchaseId);
+            if ($entity === 'salesreceipt') {
+                return $this->importSalesReceiptById($qboCompany, $entityId);
+            }
+
+            return $this->importPurchaseById($qboCompany, $entityId);
         }
 
         return ['imported' => false, 'reason' => 'unknown_operation'];
@@ -1113,6 +1706,44 @@ class QuickBooksService
         return ['imported' => true, 'created' => $result['created'], 'warning' => $result['warning'] ?? null];
     }
 
+    /**
+     * Fetch one SalesReceipt by Id and import as Process Payment (Receive Payment).
+     */
+    public function importSalesReceiptById(QBOCompany $qboCompany, string $receiptId): array
+    {
+        $dataService = $this->dataServiceForCompany($qboCompany);
+        $receipt = $dataService->FindById('SalesReceipt', $receiptId);
+
+        if ($error = $dataService->getLastError()) {
+            throw new Exception($error->getResponseBody() ?: "Failed to fetch SalesReceipt {$receiptId}");
+        }
+
+        if (!$receipt) {
+            return ['imported' => false, 'reason' => 'not_found'];
+        }
+
+        $result = $this->upsertLocalCheckFromQboSalesReceipt(
+            $receipt,
+            $qboCompany,
+            (int) $qboCompany->user_id,
+            $dataService
+        );
+
+        QboSyncLog::create([
+            'user_id' => $qboCompany->user_id,
+            'qbo_company_id' => $qboCompany->id,
+            'direction' => 'inbound',
+            'action' => 'webhook_sales_receipt',
+            'status' => 'success',
+            'records' => 1,
+            'message' => ($result['created'] ? 'Created' : 'Updated') . " Process Payment from QBO SalesReceipt {$receiptId}",
+        ]);
+
+        $qboCompany->update(['last_sync_at' => now()]);
+
+        return ['imported' => true, 'created' => $result['created'], 'warning' => $result['warning'] ?? null];
+    }
+
     public function deleteLocalCheckByQboId(string $qboId, int $userId): void
     {
         $check = Checks::where('UserID', $userId)->where('qbo_id', $qboId)->first();
@@ -1152,8 +1783,11 @@ class QuickBooksService
         }
 
         $dataService = $this->dataServiceForCompany($qboCompany);
+
+        // PrintStatus applies to expense Checks (Make Payment / Purchase) only.
         $existing = $dataService->FindById('Purchase', $check->qbo_id);
         if (!$existing) {
+            $check->update(['qbo_print_later' => false]);
             return;
         }
 

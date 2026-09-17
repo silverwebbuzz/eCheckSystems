@@ -31,12 +31,14 @@ class ProcessQuickBooksWebhook implements ShouldQueue
             ImportQuickBooksCheckJob::dispatch(
                 $event['realmId'],
                 $event['id'],
-                $event['operation']
+                $event['operation'],
+                $event['entity'] ?? 'Purchase'
             );
         }
 
         Log::info('QBO webhook queued inbound check jobs', [
             'count' => count($events),
+            'entities' => array_values(array_unique(array_column($events, 'entity'))),
         ]);
     }
 

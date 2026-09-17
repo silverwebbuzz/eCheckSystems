@@ -15,7 +15,7 @@ class QuickBooksWebhookController extends Controller
      *
      * Endpoint (API): POST /api/quickbooks/webhook
      * Configure this HTTPS URL in Intuit Developer → Webhooks.
-     * Subscribe to entity: Purchase (Create, Update, Delete, Void).
+     * Subscribe to entities: Purchase (Checks) and SalesReceipt (Receive Payment).
      */
     public function handle(Request $request, QuickBooksService $qbo)
     {
@@ -32,7 +32,7 @@ class QuickBooksWebhookController extends Controller
             return response('Invalid JSON', 400);
         }
 
-        // Acknowledge immediately; fan-out each Purchase onto qbo-inbound
+        // Acknowledge immediately; fan-out each allowed entity onto qbo-inbound
         ProcessQuickBooksWebhook::dispatch($payload);
 
         Log::info('QBO webhook queued', [

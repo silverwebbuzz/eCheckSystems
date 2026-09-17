@@ -24,23 +24,30 @@ class ImportQuickBooksCheckJob implements ShouldQueue, ShouldBeUnique
     public function __construct(
         public string $realmId,
         public string $purchaseId,
-        public string $operation
+        public string $operation,
+        public string $entity = 'Purchase'
     ) {
         $this->onQueue(config('quickbooks.queues.inbound', 'qbo-inbound'));
     }
 
     public function uniqueId(): string
     {
-        return $this->realmId . ':' . $this->purchaseId . ':' . strtolower($this->operation);
+        return $this->realmId . ':' . $this->entity . ':' . $this->purchaseId . ':' . strtolower($this->operation);
     }
 
     public function handle(QuickBooksService $qbo): void
     {
-        $result = $qbo->processWebhookEntity($this->realmId, $this->purchaseId, $this->operation);
+        $result = $qbo->processWebhookEntity(
+            $this->realmId,
+            $this->purchaseId,
+            $this->operation,
+            $this->entity
+        );
 
-        Log::info('QBO inbound check processed', [
+        Log::info('QBO inbound entity processed', [
             'realmId' => $this->realmId,
-            'purchaseId' => $this->purchaseId,
+            'entity' => $this->entity,
+            'entityId' => $this->purchaseId,
             'operation' => $this->operation,
             'result' => $result,
         ]);
@@ -50,6 +57,7 @@ class ImportQuickBooksCheckJob implements ShouldQueue, ShouldBeUnique
     {
         Log::error('QBO inbound check job failed permanently', [
             'realmId' => $this->realmId,
+            'entity' => $this->entity,
             'purchaseId' => $this->purchaseId,
             'operation' => $this->operation,
             'error' => $e->getMessage(),
