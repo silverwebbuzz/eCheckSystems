@@ -239,7 +239,6 @@
                                 @endif
                             </div>
                         </div>
-                        <input type="hidden" id="category" name="category" value="RP" />
                         <input type="hidden" name="type" id="type" value="Payor" />
                         <div class="row mb-6">
                             <label class="col-sm-2 col-form-label" for="status">Status</label>

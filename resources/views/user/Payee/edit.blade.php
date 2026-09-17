@@ -156,7 +156,6 @@
                                 @endif
                             </div>
                         </div> --}}
-                        <input type="hidden" id="category" name="category" value="RP" />
                         {{-- <div class="row mb-6">
                             <label class="col-sm-2 col-form-label" for="category">Category</label>
                             <div class="col-sm-10">
