@@ -37,12 +37,8 @@ return new class extends Migration
             // Ignore if already altered or DB driver does not support this form
         }
 
-        // Extend CheckType for QuickBooks-sourced checks list filtering
-        try {
-            DB::statement("ALTER TABLE `Checks` MODIFY `CheckType` ENUM('Process Payment','Make Payment','QuickBooks') NOT NULL");
-        } catch (\Throwable $e) {
-            // Ignore if already altered
-        }
+        // CheckType stays Process Payment | Make Payment only; QuickBooks linkage uses qbo_id
+        // (see 2026_09_07_000001_checktype_only_process_and_make_payment)
     }
 
     public function down(): void

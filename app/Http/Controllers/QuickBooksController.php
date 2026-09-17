@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Checks;
 use App\Models\Company;
+use App\Models\Payors;
 use App\Models\QBOCompany;
 use App\Jobs\SyncQuickBooksChecksJob;
 use App\Services\QuickBooksService;
@@ -11,6 +12,7 @@ use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 
 class QuickBooksController extends Controller
 {
@@ -221,7 +223,7 @@ class QuickBooksController extends Controller
     public function checks(Request $request)
     {
         if ($request->ajax()) {
-            $checks = Checks::with(['payee', 'lineItems'])
+            $checks = Checks::with(['payee', 'payor', 'lineItems'])
                 ->where('UserID', Auth::id())
                 ->quickBooks()
                 ->orderByDesc('CheckID')
@@ -229,7 +231,20 @@ class QuickBooksController extends Controller
 
             return datatables()->of($checks)
                 ->addIndexColumn()
-                ->addColumn('payee_name', fn ($row) => $row->payee->Name ?? '—')
+                ->addColumn('txn_type', function ($row) {
+                    if ($row->CheckType === 'Process Payment') {
+                        return '<span class="badge bg-label-success">Receive Payment</span>';
+                    }
+
+                    return '<span class="badge bg-label-primary">Send Payment</span>';
+                })
+                ->addColumn('party_name', function ($row) {
+                    if ($row->CheckType === 'Process Payment') {
+                        return $row->payor->Name ?? $row->payee->Name ?? '—';
+                    }
+
+                    return $row->payee->Name ?? $row->payor->Name ?? '—';
+                })
                 ->addColumn('amount_fmt', fn ($row) => '$' . number_format((float) $row->Total, 2))
                 ->addColumn('issue_date', fn ($row) => $row->IssueDate ? date('m/d/Y', strtotime($row->IssueDate)) : '—')
                 ->addColumn('status_badge', function ($row) {
@@ -249,12 +264,14 @@ class QuickBooksController extends Controller
                     $view = route('qbo.checks.show', ['id' => $row->CheckID]);
                     $html = '<a href="' . $view . '" class="btn btn-sm btn-outline-secondary me-1">View</a>';
                     if ($row->Status !== 'generated') {
-                        $generate = route('check_generate', ['id' => $row->CheckID]);
+                        $generate = $row->CheckType === 'Make Payment'
+                            ? route('send_check_generate', ['id' => $row->CheckID])
+                            : route('check_generate', ['id' => $row->CheckID]);
                         $html .= '<a href="' . $generate . '" class="btn btn-sm btn-primary">Generate / Print</a>';
                     }
                     return $html;
                 })
-                ->rawColumns(['status_badge', 'actions'])
+                ->rawColumns(['txn_type', 'status_badge', 'actions'])
                 ->make(true);
         }
 
@@ -263,11 +280,82 @@ class QuickBooksController extends Controller
 
     public function showCheck($id)
     {
-        $check = Checks::with(['payee', 'lineItems', 'qboCompany'])
+        $check = Checks::with(['payee', 'payor', 'lineItems', 'qboCompany'])
             ->where('UserID', Auth::id())
             ->where('CheckID', $id)
             ->firstOrFail();
 
-        return view('user.quickbooks.check_show', compact('check'));
+        $category = $check->CheckType === 'Process Payment' ? 'RP' : 'SP';
+
+        $payors = Payors::where('UserID', Auth::id())
+            ->where('Type', 'Payor')
+            ->where('Category', $category)
+            ->orderBy('Name')
+            ->get();
+
+        $payees = Payors::where('UserID', Auth::id())
+            ->where('Type', 'Payee')
+            ->where('Category', $category)
+            ->orderBy('Name')
+            ->get();
+
+        $states = [
+            'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado', 'Connecticut',
+            'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho', 'Illinois', 'Indiana', 'Iowa',
+            'Kansas', 'Kentucky', 'Louisiana', 'Maine', 'Maryland', 'Massachusetts', 'Michigan',
+            'Minnesota', 'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada', 'New Hampshire',
+            'New Jersey', 'New Mexico', 'New York', 'North Carolina', 'North Dakota', 'Ohio',
+            'Oklahoma', 'Oregon', 'Pennsylvania', 'Rhode Island', 'South Carolina', 'South Dakota',
+            'Tennessee', 'Texas', 'Utah', 'Vermont', 'Virginia', 'Washington', 'West Virginia',
+            'Wisconsin', 'Wyoming',
+        ];
+
+        return view('user.quickbooks.check_show', compact('check', 'payors', 'payees', 'category', 'states'));
+    }
+
+    /**
+     * Link a Payor or Payee to a QuickBooks-imported check.
+     */
+    public function assignParty(Request $request, $id)
+    {
+        $check = Checks::where('UserID', Auth::id())
+            ->where('CheckID', $id)
+            ->firstOrFail();
+
+        $validator = Validator::make($request->all(), [
+            'party' => 'required|in:payor,payee',
+            'entity_id' => 'required|integer',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $category = $check->CheckType === 'Process Payment' ? 'RP' : 'SP';
+        $expectedType = $request->party === 'payor' ? 'Payor' : 'Payee';
+
+        $entity = Payors::where('UserID', Auth::id())
+            ->where('EntityID', $request->entity_id)
+            ->where('Type', $expectedType)
+            ->where('Category', $category)
+            ->first();
+
+        if (!$entity) {
+            return response()->json(['success' => false, 'message' => 'Selected ' . $expectedType . ' not found.'], 404);
+        }
+
+        if ($request->party === 'payor') {
+            $check->PayorID = $entity->EntityID;
+        } else {
+            $check->PayeeID = $entity->EntityID;
+        }
+        $check->save();
+
+        return response()->json([
+            'success' => true,
+            'party' => $request->party,
+            'entity' => $entity,
+            'name' => $entity->Name,
+        ]);
     }
 }

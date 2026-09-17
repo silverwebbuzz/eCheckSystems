@@ -9,8 +9,8 @@ return [
     'environment' => env('QBO_ENVIRONMENT', 'development'),
     // Intuit Developer → Webhooks → Show verifier token
     'webhook_verifier_token' => env('QBO_WEBHOOK_VERIFIER_TOKEN'),
-    // Checks in QBO are Purchase entities with PaymentType=Check
-    'webhook_entities' => ['Purchase'],
+    // Purchase = expense Checks (Make Payment); SalesReceipt = receive payments (Process Payment)
+    'webhook_entities' => ['Purchase', 'SalesReceipt'],
     'queues' => [
         'inbound' => env('QBO_INBOUND_QUEUE', 'qbo-inbound'),
         'outgoing' => env('QBO_OUTGOING_QUEUE', 'qbo-outgoing'),

@@ -32,6 +32,15 @@ class PushCheckToQuickBooksJob implements ShouldQueue
             return;
         }
 
+        // Make Payment → QBO Checks; Process Payment → QBO Sales Receipt (routed in QuickBooksService).
+        if (!in_array($check->CheckType, ['Make Payment', 'Process Payment'], true)) {
+            Log::info('QBO push skipped — unsupported CheckType', [
+                'check_id' => $this->checkId,
+                'check_type' => $check->CheckType,
+            ]);
+            return;
+        }
+
         $qboCompany = $check->qbo_company_id
             ? QBOCompany::where('id', $check->qbo_company_id)->where('user_id', $check->UserID)->first()
             : $qbo->activeCompanyForUser((int) $check->UserID);
