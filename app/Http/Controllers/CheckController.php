@@ -1573,13 +1573,28 @@ class CheckController extends Controller
                 'Category' => 'RP',
             ];
 
-            $payor = Payors::where('Email', $request->email)->first();
+            // $payor = Payors::where('Email', $request->email)->first();
 
-            if (!empty($payor)) {
-                $payor->update($payor_data);
-            } else {
-                $payor = Payors::create($payor_data);
-            }
+            // if (!empty($payor)) {
+            //     $payor->update($payor_data);
+            // } else {
+            //     $payor = Payors::create($payor_data);
+            // }
+
+            $payor = Payors::where('UserID', $payee->UserID)
+            ->where('Type', 'Payor')
+            ->where('Name', trim($request->name))
+            ->where('Email', trim($request->email))
+            ->where('City', trim($request->city))
+            ->where('State', trim($request->state))
+            ->where('Zip', trim($request->zip))
+            ->where('RoutingNumber', $payor_data['RoutingNumber'])
+            ->where('AccountNumber', $payor_data['AccountNumber'])
+            ->first();
+
+        if (empty($payor)) {
+            $payor = Payors::create($payor_data);
+        }
 
             $check_date = Carbon::parse(str_replace('-', '/', $request->check_date));
 
