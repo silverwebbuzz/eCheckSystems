@@ -36,6 +36,7 @@ return new class extends Migration
                 $table->id();
                 $table->unsignedBigInteger('CheckID');
                 $table->unsignedBigInteger('UserID');           // sender (customer)
+                $table->string('sender_name')->nullable();       // name shown to the payee ("check from ...")
                 $table->string('payee_email');
                 $table->string('token_hash', 64)->unique();      // sha256 of the emailed token
                 $table->string('status', 20)->default('sent');   // sent | viewed | printed

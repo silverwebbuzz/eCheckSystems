@@ -36,7 +36,7 @@ class CheckDeliveryController extends Controller
         return view('check_delivery.show', [
             'token' => $token,
             'delivery' => $delivery,
-            'details' => $this->details($check),
+            'details' => $this->details($check, $delivery),
             'hasAccount' => PayeeAccount::whereRaw('LOWER(email) = ?', [strtolower($delivery->payee_email)])->exists(),
             'payeeLoggedIn' => Auth::guard('payee')->check(),
         ]);
@@ -144,7 +144,7 @@ class CheckDeliveryController extends Controller
             if (!$check) {
                 continue;
             }
-            $rows[] = ['delivery' => $delivery, 'details' => $this->details($check)];
+            $rows[] = ['delivery' => $delivery, 'details' => $this->details($check, $delivery)];
         }
 
         return view('check_delivery.payee_checks', compact('account', 'rows'));
@@ -203,13 +203,13 @@ class CheckDeliveryController extends Controller
         return [$delivery, $check, null];
     }
 
-    private function details(Checks $check): array
+    private function details(Checks $check, ?CheckDelivery $delivery = null): array
     {
         $payor = Payors::withTrashed()->find($check->PayorID);
         $payee = Payors::withTrashed()->find($check->PayeeID);
 
         return [
-            'sender' => $payor->Name ?? 'Sender',
+            'sender' => ($delivery->sender_name ?? null) ?: ($payor->Name ?? 'Sender'),
             'payee' => $payee->Name ?? '',
             'amount' => number_format((float) $check->Amount, 2),
             'check_number' => 'EC' . $check->CheckNumber,

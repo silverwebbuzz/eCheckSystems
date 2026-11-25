@@ -21,7 +21,7 @@ class CheckDeliveryService
      *
      * @throws \Throwable when the email cannot be sent (caller shows the error)
      */
-    public function send(Checks $check, Payors $payor, Payors $payee): CheckDelivery
+    public function send(Checks $check, string $senderName, Payors $payee): CheckDelivery
     {
         $token = Str::random(48);
 
@@ -31,6 +31,7 @@ class CheckDeliveryService
         ]);
 
         $delivery->fill([
+            'sender_name' => $senderName,
             'payee_email' => trim((string) $payee->Email),
             'token_hash' => CheckDelivery::hashToken($token),
             'sent_at' => now(),
@@ -43,7 +44,7 @@ class CheckDeliveryService
         $delivery->save();
 
         Mail::to($delivery->payee_email)->send(new CheckDeliveryMail([
-            'sender_name' => $payor->Name,
+            'sender_name' => $senderName,
             'payee_name' => $payee->Name,
             'amount' => number_format((float) $check->Amount, 2),
             'check_number' => 'EC' . $check->CheckNumber,

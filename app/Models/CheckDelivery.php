@@ -15,6 +15,7 @@ class CheckDelivery extends Model
     protected $fillable = [
         'CheckID',
         'UserID',
+        'sender_name',
         'payee_email',
         'token_hash',
         'status',

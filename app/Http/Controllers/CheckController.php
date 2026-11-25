@@ -1703,12 +1703,22 @@ class CheckController extends Controller
 
         $payor = Payors::withTrashed()->find($check->PayorID);
         $payee = Payors::withTrashed()->find($check->PayeeID);
-        if (!$payor || !$payee || empty(trim((string) $payee->Email))) {
-            return redirect()->back()->with('fail', 'The payee needs an email address before the check can be sent.');
+        if (!$payee) {
+            return redirect()->back()->with('fail', 'Payee not found for this check.');
+        }
+        if (empty(trim((string) $payee->Email))) {
+            return redirect()->back()->with('fail', 'Payee email is missing. Please update the payee and try again.');
+        }
+
+        // Name the payee sees ("You have a check from ..."): the payor, else the user's company / name.
+        $user = Auth::user();
+        $senderName = $payor->Name ?? '';
+        if ($senderName === '') {
+            $senderName = trim(($user->CompanyName ?? '') ?: trim(($user->FirstName ?? '') . ' ' . ($user->LastName ?? ''))) ?: 'eCheck Systems';
         }
 
         try {
-            $deliveryService->send($check, $payor, $payee);
+            $deliveryService->send($check, $senderName, $payee);
 
             $check->is_email_send = 1;
             $check->is_seen = 1;
