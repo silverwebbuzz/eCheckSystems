@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\Payors;
 use App\Models\QBOCompany;
 use App\Jobs\SyncQuickBooksChecksJob;
+use App\Jobs\PushCheckToQuickBooksJob;
 use App\Services\QuickBooksService;
 use App\Support\QboJobs;
 use Exception;
@@ -234,6 +235,24 @@ class QuickBooksController extends Controller
         ]);
 
         return redirect()->route('qbo.settings')->with('success', 'QuickBooks integration settings saved.');
+    }
+
+    /** "Retry" link on a check marked "QuickBooks: not synced" (History). */
+    public function retryPush($id)
+    {
+        $check = Checks::where('CheckID', $id)->where('UserID', Auth::id())->firstOrFail();
+
+        if ($check->Status !== 'generated') {
+            return back()->with('info', 'Please generate the check first.');
+        }
+
+        $check->update([
+            'qbo_sync_status' => $check->qbo_id ? 'imported' : null,
+            'qbo_sync_error' => null,
+        ]);
+        QboJobs::dispatch(new PushCheckToQuickBooksJob((int) $check->CheckID));
+
+        return back()->with('info', 'Sending check #' . $check->CheckNumber . ' to QuickBooks again. Refresh this page in a moment to see the result.');
     }
 
     public function sync($qbo_company_id = null)

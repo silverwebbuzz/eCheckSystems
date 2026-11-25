@@ -39,6 +39,7 @@ class Checks extends Model
         'created_at',
         'qbo_id',
         'qbo_sync_status',
+        'qbo_sync_error',
         'qbo_print_later',
         'qbo_company_id',
         'qbo_doc_number',
