@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Services\QuickBooksService;
+use App\Support\QboJobs;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -28,12 +29,12 @@ class ProcessQuickBooksWebhook implements ShouldQueue
         $events = $qbo->extractWebhookPurchaseEvents($this->payload);
 
         foreach ($events as $event) {
-            ImportQuickBooksCheckJob::dispatch(
+            QboJobs::dispatchFromJob(new ImportQuickBooksCheckJob(
                 $event['realmId'],
                 $event['id'],
                 $event['operation'],
                 $event['entity'] ?? 'Purchase'
-            );
+            ));
         }
 
         Log::info('QBO webhook queued inbound check jobs', [

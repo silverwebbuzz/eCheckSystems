@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Jobs\ProcessQuickBooksWebhook;
 use App\Services\QuickBooksService;
+use App\Support\QboJobs;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -32,8 +33,9 @@ class QuickBooksWebhookController extends Controller
             return response('Invalid JSON', 400);
         }
 
-        // Acknowledge immediately; fan-out each allowed entity onto qbo-inbound
-        ProcessQuickBooksWebhook::dispatch($payload);
+        // Acknowledge immediately. In after_response mode (default) the import runs right after
+        // this 200 is sent, in the same request: real time, no cron/queue worker needed.
+        QboJobs::dispatch(new ProcessQuickBooksWebhook($payload));
 
         Log::info('QBO webhook queued', [
             'notifications' => count($payload['eventNotifications'] ?? []),

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Jobs\SyncQuickBooksChecksJob;
 use App\Models\QBOCompany;
+use App\Support\QboJobs;
 use Illuminate\Console\Command;
 
 class SyncQuickBooksChecks extends Command
@@ -31,7 +32,7 @@ class SyncQuickBooksChecks extends Command
                 SyncQuickBooksChecksJob::dispatchSync((int) $company->id, (int) $company->user_id);
                 $this->info("Synced inline: user {$company->user_id} / {$company->name}");
             } else {
-                SyncQuickBooksChecksJob::dispatch((int) $company->id, (int) $company->user_id);
+                QboJobs::dispatch(new SyncQuickBooksChecksJob((int) $company->id, (int) $company->user_id));
                 $this->info("Queued sync: user {$company->user_id} / {$company->name}");
             }
         }
