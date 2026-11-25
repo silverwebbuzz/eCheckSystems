@@ -1025,7 +1025,14 @@ class CheckController extends Controller
                     return $row->IssueDate ? User::user_timezone($row->IssueDate, 'm/d/Y') : '-';
                 })
                 ->addColumn('Status', function ($row) {
-                    return $row->Status === 'draft' ? 'Draft' : 'Generated';
+                    $status = $row->Status === 'draft' ? 'Draft' : 'Generated';
+                    if ($row->qbo_sync_status === 'push_failed') {
+                        $status .= '<br><span class="badge bg-label-danger mt-1" title="' . e((string) $row->qbo_sync_error) . '">'
+                            . '<i class="ti ti-alert-triangle me-1"></i>QuickBooks: not synced</span>'
+                            . '<div class="small text-danger mt-1" style="max-width:260px;white-space:normal;">' . e((string) $row->qbo_sync_error) . '</div>'
+                            . '<a href="' . route('qbo.retryPush', ['id' => $row->CheckID]) . '" class="small">Retry</a>';
+                    }
+                    return $status;
                 })
                 ->addColumn('actions', function ($row) {
                     if (!empty($row->CheckPDF)) {
@@ -1248,6 +1255,15 @@ class CheckController extends Controller
         if ($check->qbo_id && ($partyError = $this->validateCheckPartiesForGenerate($check))) {
             return redirect()->route('qbo.checks.show', ['id' => $check->CheckID])
                 ->with('error', $partyError);
+        }
+
+        // QuickBooks refuses a second check with the same number. Ask first, while the check is
+        // still a draft and the number can be changed. (Never blocks if QuickBooks cannot be asked.)
+        if (empty($check->qbo_id) && ($pushCompany = $this->qboCompanyForPush($check))
+            && app(QuickBooksService::class)->checkNumberUsedInQbo($pushCompany, (string) $check->CheckNumber)) {
+            return redirect()->back()->with('info',
+                'Check number ' . $check->CheckNumber . ' is already used in QuickBooks (' . $pushCompany->name . '). '
+                . 'Please edit this check and change the check number, or set "Sync this check to QuickBooks?" to No, then generate again.');
         }
 
         $check_date = Carbon::parse(str_replace('/', '-', $check->ExpiryDate))->format('m/d/Y');
@@ -2126,21 +2142,33 @@ class CheckController extends Controller
      * Queue push/update of check to QuickBooks when PDF is generated (outbound sync).
      * Make Payment → QBO Checks; Process Payment → QBO Sales Receipt (routed in QuickBooksService).
      */
-    protected function syncCheckToQuickBooksOnGenerate(Checks $check): void
+    /**
+     * The QuickBooks company this check will be pushed to on Generate, or null when it will not be pushed.
+     * Checks that came FROM QuickBooks always keep QuickBooks in step (existing behaviour).
+     * Checks created in eCheck are pushed only when setting 2b (sync_back) is on
+     * and the user did not answer "No" to "Sync this check to QuickBooks?".
+     */
+    protected function qboCompanyForPush(Checks $check): ?QBOCompany
     {
         if (!in_array($check->CheckType, ['Make Payment', 'Process Payment'], true)) {
-            return;
+            return null;
         }
 
         $active = app(QuickBooksService::class)->activeCompanyForUser((int) $check->UserID);
         if (!$active) {
-            return;
+            return null;
         }
 
-        // Checks that came FROM QuickBooks always keep QuickBooks in step (existing behaviour).
-        // Checks created in eCheck are pushed only when setting 2b (sync_back) is on
-        // and the user did not answer "No" to "Sync this check to QuickBooks?".
         if (empty($check->qbo_id) && (!$active->sync_back || $check->qbo_sync === false)) {
+            return null;
+        }
+
+        return $active;
+    }
+
+    protected function syncCheckToQuickBooksOnGenerate(Checks $check): void
+    {
+        if (!$this->qboCompanyForPush($check)) {
             return;
         }
 

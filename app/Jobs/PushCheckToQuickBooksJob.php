@@ -50,7 +50,14 @@ class PushCheckToQuickBooksJob implements ShouldQueue
             return;
         }
 
-        $qbo->pushCheckToQbo($check, $qboCompany);
+        try {
+            $qbo->pushCheckToQbo($check, $qboCompany);
+        } catch (\Throwable $e) {
+            // Make the failure visible to the user ("QuickBooks: not synced" + reason), then rethrow
+            // so the error is still logged (and retried in queue mode).
+            $qbo->markPushFailed($check->fresh() ?? $check, $qboCompany, $e);
+            throw $e;
+        }
     }
 
     public function failed(\Throwable $e): void

@@ -381,6 +381,7 @@ Route::middleware([CheckBlockedIP::class])->group(function () {
             Route::get('/quickbooks/checks', [QuickBooksController::class, 'checks'])->name('qbo.checks');
             Route::get('/quickbooks/checks/{id}', [QuickBooksController::class, 'showCheck'])->name('qbo.checks.show');
             Route::post('/quickbooks/checks/{id}/assign-party', [QuickBooksController::class, 'assignParty'])->name('qbo.checks.assignParty');
+            Route::get('/quickbooks/checks/{id}/retry-push', [QuickBooksController::class, 'retryPush'])->whereNumber('id')->name('qbo.retryPush');
 
             Route::get('/check/delete/{id}', [CheckController::class, 'delete'])->name('check.delete');
         });

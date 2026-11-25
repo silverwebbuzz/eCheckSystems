@@ -998,6 +998,7 @@ class QuickBooksService
         $check->update([
             'qbo_id' => (string) ($result->Id ?? $check->qbo_id),
             'qbo_sync_status' => 'pushed',
+            'qbo_sync_error' => null,
             'qbo_company_id' => $qboCompany->id,
             'qbo_doc_number' => (string) ($result->DocNumber ?? $check->CheckNumber),
         ]);
@@ -1118,6 +1119,7 @@ class QuickBooksService
         $check->update([
             'qbo_id' => (string) ($result->Id ?? $check->qbo_id),
             'qbo_sync_status' => 'pushed',
+            'qbo_sync_error' => null,
             'qbo_company_id' => $qboCompany->id,
             'qbo_doc_number' => (string) ($result->DocNumber ?? $check->CheckNumber),
         ]);
@@ -1694,6 +1696,103 @@ class QuickBooksService
         }
 
         return ['imported' => false, 'reason' => 'unknown_operation'];
+    }
+
+    /**
+     * Turn a QuickBooks API error into a sentence a user understands.
+     * Intuit returns XML like <Fault><Error code="6140"><Message>..</Message><Detail>..</Detail></Error></Fault>.
+     */
+    public function friendlyPushError(\Throwable $e, ?Checks $check = null): string
+    {
+        $raw = (string) $e->getMessage();
+        $code = null;
+        $message = '';
+        $detail = '';
+
+        if (str_contains($raw, '<Fault')) {
+            try {
+                $xml = @simplexml_load_string($raw);
+                $error = $xml?->Fault?->Error;
+                if ($error) {
+                    $code = (string) ($error['code'] ?? '');
+                    $message = trim((string) ($error->Message ?? ''));
+                    $detail = trim((string) ($error->Detail ?? ''));
+                }
+            } catch (\Throwable $ignored) {
+            }
+        }
+
+        // 6140 = Duplicate Document Number (check number already used in this QuickBooks company)
+        if ($code === '6140') {
+            $number = $check?->CheckNumber ?? '';
+            return "Check number {$number} is already used in QuickBooks, so this check was not added to QuickBooks.";
+        }
+
+        if (stripos($raw, 'token') !== false && (stripos($raw, 'expired') !== false || stripos($raw, 'invalid') !== false)) {
+            return 'The QuickBooks connection has expired. Please connect QuickBooks again in Settings, then click Retry.';
+        }
+
+        $text = $message !== '' ? $message . ($detail !== '' ? ': ' . $detail : '') : strip_tags($raw);
+
+        return 'QuickBooks did not accept this check: ' . mb_strimwidth(trim($text), 0, 380, '...');
+    }
+
+    /** Record a failed push on the check (shown as "QuickBooks: not synced") and in the sync log. */
+    public function markPushFailed(Checks $check, ?QBOCompany $qboCompany, \Throwable $e): void
+    {
+        $reason = $this->friendlyPushError($e, $check);
+
+        $check->update([
+            'qbo_sync_status' => 'push_failed',
+            'qbo_sync_error' => mb_substr($reason, 0, 500),
+        ]);
+
+        QboSyncLog::create([
+            'user_id' => $check->UserID,
+            'qbo_company_id' => $qboCompany?->id,
+            'direction' => 'outbound',
+            'action' => 'push_check',
+            'status' => 'error',
+            'records' => 0,
+            'message' => mb_substr("Check {$check->CheckID} (#{$check->CheckNumber}): {$reason}", 0, 1000),
+        ]);
+    }
+
+    /**
+     * Is this check number already used by a check (Purchase paid by Check) in the QuickBooks company?
+     * Used before Generate so the user can still change the number. If QuickBooks cannot be asked
+     * (API error, unsupported query), returns false and never blocks the user.
+     */
+    public function checkNumberUsedInQbo(QBOCompany $qboCompany, string $docNumber): bool
+    {
+        $docNumber = preg_replace('/[^0-9A-Za-z\-]/', '', $docNumber);
+        if ($docNumber === '') {
+            return false;
+        }
+
+        try {
+            $dataService = $this->dataServiceForCompany($qboCompany);
+            $rows = $dataService->Query("SELECT * FROM Purchase WHERE DocNumber = '{$docNumber}'");
+
+            if ($dataService->getLastError()) {
+                return false;
+            }
+
+            foreach ($rows ?: [] as $purchase) {
+                $type = $purchase->PaymentType ?? '';
+                if (is_object($type)) {
+                    $type = $type->value ?? $type->name ?? (string) $type;
+                }
+                if (strcasecmp(trim((string) $type), 'Check') === 0
+                    && (string) ($purchase->DocNumber ?? '') === $docNumber) {
+                    return true;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('QBO check-number lookup failed', ['error' => $e->getMessage()]);
+        }
+
+        return false;
     }
 
     /**
