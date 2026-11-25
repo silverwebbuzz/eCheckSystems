@@ -121,6 +121,12 @@
         text-align: right;
     }
 
+    /* Send Payment: "EC" prefix + number read as one value (EC1000), like on the PDF */
+    .echeck-card .card-body > .row .input-group #check_number {
+        text-align: left;
+        padding-left: 2px;
+    }
+
     .echeck-card .card-body > .row .input-group-text {
         border: 0 !important;
         background: transparent !important;
@@ -145,6 +151,7 @@
         font-weight: 700;
         color: var(--echeck-accent-dark);
         text-align: right;
+        padding-right: 4px;
     }
 
     .echeck-card .card-body > .row #amount {
