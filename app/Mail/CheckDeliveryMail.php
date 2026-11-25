@@ -42,12 +42,12 @@ class CheckDeliveryMail extends Mailable
             . 'style="background:#7367f0;color:#ffffff;text-decoration:none;padding:14px 34px;'
             . 'border-radius:6px;font-weight:bold;font-size:16px;display:inline-block;">Get Check</a>';
 
-        foreach (['subject', 'content', 'body1', 'body2'] as $field) {
+        foreach (['subject', 'head', 'content', 'body1', 'body2'] as $field) {
             if (empty($emailContent->{$field})) {
                 continue;
             }
             // body1/body2 are printed as raw HTML by the mail view, so escape values there.
-            // subject/content are escaped by the view itself, so insert plain text.
+            // subject/head/content are escaped by the view itself, so insert plain text.
             $isHtml = in_array($field, ['body1', 'body2'], true);
             $content = Str::of($emailContent->{$field});
             foreach ($values as $key => $value) {

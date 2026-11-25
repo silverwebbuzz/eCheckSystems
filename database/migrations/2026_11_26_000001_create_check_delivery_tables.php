@@ -61,7 +61,7 @@ return new class extends Migration
                 'id' => 18,
                 'name' => 'Check Delivery (Get Check link)',
                 'subject' => 'You have a check from {{ sender_name }}',
-                'head' => 'You have a check',
+                'head' => 'You have a check from {{ sender_name }}',
                 'content' => 'Hello {{ payee_name }},',
                 'body1' => '<p><strong>{{ sender_name }}</strong> sent you a check for <strong>${{ amount }}</strong> (check #{{ check_number }}).</p>'
                     . '<p>Memo: {{ memo }}</p>'
