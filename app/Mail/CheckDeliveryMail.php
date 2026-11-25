@@ -35,7 +35,7 @@ class CheckDeliveryMail extends Mailable
             '{{ check_number }}' => (string) ($this->data['check_number'] ?? ''),
             '{{ memo }}' => (string) (($this->data['memo'] ?? '') !== '' ? $this->data['memo'] : '-'),
             '{{ expires_date }}' => (string) ($this->data['expires_date'] ?? ''),
-            '{{ support_email }}' => (string) config('mail.from.address'),
+            '{{ support_email }}' => (string) config('check_delivery.support_email'),
             '{{ get_check_url }}' => $url,
         ];
         $button = '<a href="' . e($url) . '" target="_blank" '
