@@ -108,6 +108,13 @@ class QuickBooksController extends Controller
                 ])))
                 : 'No Address Found';
 
+            // One QuickBooks company = one eCheck account. If another account already has it
+            // connected, webhooks could not tell whose check it is, so refuse the connection.
+            if ($this->realmConnectedByOtherUser((string) $request->realmId, (int) $userId)) {
+                session()->forget('qbo_connecting_user_id');
+                return redirect()->route('qbo.settings')->with('error', self::REALM_IN_USE_MESSAGE);
+            }
+
             // Only one active connection per user
             QBOCompany::forUser($userId)->update(['status' => 'not connected']);
 
@@ -142,10 +149,26 @@ class QuickBooksController extends Controller
         }
     }
 
+    private const REALM_IN_USE_MESSAGE = 'This QuickBooks company is already connected to another eCheckSystems account. '
+        . 'Please disconnect it there first, or contact support.';
+
+    /** True when another eCheck user has this QuickBooks company (realm) connected right now. */
+    private function realmConnectedByOtherUser(string $realmId, int $userId): bool
+    {
+        return QBOCompany::where('realm_id', $realmId)
+            ->where('status', 'connected')
+            ->where('user_id', '!=', $userId)
+            ->exists();
+    }
+
     public function setActive($id)
     {
         $userId = Auth::id();
         $company = QBOCompany::forUser($userId)->where('id', $id)->firstOrFail();
+
+        if ($this->realmConnectedByOtherUser((string) $company->realm_id, (int) $userId)) {
+            return redirect()->route('qbo.settings')->with('error', self::REALM_IN_USE_MESSAGE);
+        }
 
         QBOCompany::forUser($userId)->where('id', '!=', $id)->update(['status' => 'not connected']);
         $company->update(['status' => 'connected']);
