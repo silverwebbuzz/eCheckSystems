@@ -299,9 +299,16 @@ class QuickBooksService
         $printStatus = (string) ($purchase->PrintStatus ?? '');
         $printLater = in_array($printStatus, ['NeedToPrint', 'Pending'], true);
 
-        $payeeId = $this->resolveOrCreatePayee($purchase, $userId, $dataService);
+        $existing = Checks::where('UserID', $userId)->where('qbo_id', $qboId)
+            ->where('CheckType', 'Make Payment')->first();
 
-        $existing = Checks::where('UserID', $userId)->where('qbo_id', $qboId)->first();
+        // Echo of our own push: QuickBooks sends a webhook for the check we just created there.
+        // eCheck is the source of truth for checks created in eCheck, so do not overwrite them.
+        if ($existing && $existing->qbo_sync_status === 'pushed') {
+            return ['created' => false, 'warning' => null, 'skipped' => true];
+        }
+
+        $payeeId = $this->resolveOrCreatePayee($purchase, $userId, $dataService);
 
         $conflict = false;
         if ($docNumber !== '') {
@@ -372,9 +379,15 @@ class QuickBooksService
         $txnDate = $receipt->TxnDate ?? now()->toDateString();
         $memo = (string) ($receipt->PrivateNote ?? '');
 
-        $payorId = $this->resolveOrCreatePayorFromCustomer($receipt, $userId, $dataService);
+        $existing = Checks::where('UserID', $userId)->where('qbo_id', $qboId)
+            ->where('CheckType', 'Process Payment')->first();
 
-        $existing = Checks::where('UserID', $userId)->where('qbo_id', $qboId)->first();
+        // Echo of our own push (see upsertLocalCheckFromQboPurchase): keep the eCheck-created check as is.
+        if ($existing && $existing->qbo_sync_status === 'pushed') {
+            return ['created' => false, 'warning' => null, 'skipped' => true];
+        }
+
+        $payorId = $this->resolveOrCreatePayorFromCustomer($receipt, $userId, $dataService);
 
         $conflict = false;
         if ($docNumber !== '') {
@@ -1639,20 +1652,17 @@ class QuickBooksService
         string $operation,
         string $entity = 'Purchase'
     ): array {
-        $qboCompany = QBOCompany::where('realm_id', $realmId)
-            ->where('status', 'connected')
-            ->first();
-
-        if (!$qboCompany) {
-            Log::info('QBO webhook ignored — no connected company for realm', ['realmId' => $realmId]);
-            return ['imported' => false, 'reason' => 'no_company'];
-        }
-
         $operation = strtolower($operation);
         $entity = strtolower($entity);
+        $checkType = $entity === 'salesreceipt' ? 'Process Payment' : 'Make Payment';
+
+        $qboCompany = $this->resolveWebhookCompany($realmId, $entityId, $checkType);
+        if (!$qboCompany) {
+            return ['imported' => false, 'reason' => 'no_company_or_ambiguous'];
+        }
 
         if (in_array($operation, ['delete', 'void'], true)) {
-            $this->deleteLocalCheckByQboId($entityId, (int) $qboCompany->user_id);
+            $this->deleteLocalCheckByQboId($entityId, (int) $qboCompany->user_id, $checkType);
             return ['imported' => true, 'action' => 'deleted'];
         }
 
@@ -1684,6 +1694,49 @@ class QuickBooksService
         }
 
         return ['imported' => false, 'reason' => 'unknown_operation'];
+    }
+
+    /**
+     * Which eCheck user (QBO company row) a webhook event belongs to.
+     *
+     * A QuickBooks company (realm) can appear in several qbo_companies rows (one per eCheck user
+     * who connected it). Never just take the first row:
+     *  1. If a local check already has this QBO id (pushed from eCheck or imported before),
+     *     the event belongs to that check's owner. Pushed checks win over imported copies.
+     *  2. Otherwise, if exactly one user has this realm connected, use that user.
+     *  3. Otherwise it is ambiguous: log and skip ("Sync now" still works per user).
+     */
+    protected function resolveWebhookCompany(string $realmId, string $entityId, string $checkType): ?QBOCompany
+    {
+        $companies = QBOCompany::where('realm_id', $realmId)->where('status', 'connected')->get();
+
+        if ($companies->isEmpty()) {
+            Log::info('QBO webhook ignored — no connected company for realm', ['realmId' => $realmId]);
+            return null;
+        }
+
+        $owned = Checks::where('qbo_id', $entityId)
+            ->where('CheckType', $checkType)
+            ->whereIn('qbo_company_id', $companies->pluck('id'))
+            ->orderByRaw("CASE WHEN qbo_sync_status = 'pushed' THEN 0 ELSE 1 END")
+            ->orderBy('CheckID')
+            ->first();
+
+        if ($owned) {
+            return $companies->firstWhere('id', $owned->qbo_company_id);
+        }
+
+        if ($companies->count() === 1) {
+            return $companies->first();
+        }
+
+        Log::warning('QBO webhook skipped — QuickBooks company is connected by more than one user', [
+            'realmId' => $realmId,
+            'entityId' => $entityId,
+            'user_ids' => $companies->pluck('user_id')->all(),
+        ]);
+
+        return null;
     }
 
     /**
@@ -1810,9 +1863,13 @@ class QuickBooksService
         return ['imported' => true, 'created' => $result['created'], 'warning' => $result['warning'] ?? null];
     }
 
-    public function deleteLocalCheckByQboId(string $qboId, int $userId): void
+    public function deleteLocalCheckByQboId(string $qboId, int $userId, ?string $checkType = null): void
     {
-        $check = Checks::where('UserID', $userId)->where('qbo_id', $qboId)->first();
+        // Purchase and SalesReceipt ids can collide in QBO, so match the check type when known.
+        $check = Checks::where('UserID', $userId)
+            ->where('qbo_id', $qboId)
+            ->when($checkType, fn ($q) => $q->where('CheckType', $checkType))
+            ->first();
         if (!$check) {
             return;
         }
