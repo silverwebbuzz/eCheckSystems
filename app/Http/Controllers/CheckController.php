@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\Artisan;
 use setasign\Fpdi\TcpdfFpdi;
 use App\Models\UserSignature;
 use App\Mail\SendCheckMail;
+use App\Services\CheckDeliveryService;
 use App\Mail\SendWebFormMail;
 use Illuminate\Support\Facades\Mail;
 use App\Models\User;
@@ -422,6 +423,7 @@ class CheckController extends Controller
                                 <a href="' . $send_email_url . '" class="btn">
                                         <i class="menu-icon tf-icons ti ti-mail"></i> ' . $send_email_lable . '
                                 </a>
+                                ' . \App\Models\CheckDelivery::senderBadgeHtml((int) $row->CheckID) . '
                                 </div>';
 
                         } else {
@@ -1684,31 +1686,37 @@ class CheckController extends Controller
         return response()->json(['success' => true, 'signature' => $signature]);
     }
 
-    public function send_check_email($id)
+    /**
+     * Send / Resend a check to the payee (client Point 5, Deluxe-style delivery):
+     * the payee gets a secure "Get Check" link instead of the PDF as an attachment.
+     * Resend issues a new link and the previous one stops working.
+     */
+    public function send_check_email($id, CheckDeliveryService $deliveryService)
     {
-        $check = Checks::find($id);
-        $data = [];
+        $check = Checks::where('CheckID', $id)->where('UserID', Auth::id())->first();
+        if (!$check) {
+            return redirect()->back()->with('fail', 'Check not found.');
+        }
+        if (empty($check->CheckPDF) || !File::exists(public_path('checks/' . $check->CheckPDF))) {
+            return redirect()->back()->with('fail', 'Please generate the check before sending it.');
+        }
+
         $payor = Payors::withTrashed()->find($check->PayorID);
         $payee = Payors::withTrashed()->find($check->PayeeID);
-        $userSignature = UserSignature::withTrashed()->find($check->SignID);
-        $data['sender_name'] = $payor->Name;
-        $data['clinet_name'] = $payee->Name;
-        $data['check_number'] = 'EC' . $check->CheckNumber;
-        $data['memo'] = $check->Memo;
-        $data['issued_date'] = Carbon::parse(str_replace('/', '-', $check->IssueDate))->format('m/d/Y');
-        $data['amount'] = $check->Amount;
-        $check_pdf = public_path('checks/' . $check->CheckPDF);
+        if (!$payor || !$payee || empty(trim((string) $payee->Email))) {
+            return redirect()->back()->with('fail', 'The payee needs an email address before the check can be sent.');
+        }
 
         try {
-            Mail::to($payee->Email)->send(new SendCheckMail(4, $data, $check_pdf));
+            $deliveryService->send($check, $payor, $payee);
 
             $check->is_email_send = 1;
             $check->is_seen = 1;
             $check->save();
 
-            return redirect()->back()->with('success', 'Email sent successfully.');
-        } catch (\Exception $e) {
-            // dd($e->getMessage());
+            return redirect()->back()->with('success', 'Check sent. ' . $payee->Name . ' will receive an email with a secure "Get Check" link.');
+        } catch (\Throwable $e) {
+            Log::error('Check delivery email failed', ['check_id' => $check->CheckID, 'error' => $e->getMessage()]);
             return redirect()->back()->with('fail', 'Email not sent.');
         }
     }

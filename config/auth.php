@@ -44,6 +44,11 @@ return [
         'driver' => 'session',
         'provider' => 'admins',
     ],
+    // People who RECEIVE checks via "Get Check" links (separate from customer accounts)
+    'payee' => [
+        'driver' => 'session',
+        'provider' => 'payees',
+    ],
   ],
 
   /*
@@ -71,6 +76,10 @@ return [
     'admins' => [
         'driver' => 'eloquent',
         'model' => App\Models\AdminUser::class,
+    ],
+    'payees' => [
+        'driver' => 'eloquent',
+        'model' => App\Models\PayeeAccount::class,
     ],
 
     // 'users' => [
