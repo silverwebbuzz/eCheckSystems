@@ -25,6 +25,18 @@ class PayeeAccount extends Authenticatable
         ];
     }
 
+    /**
+     * Used by the 'payees' password broker. Sends our own branded email with a link to the
+     * payee reset page (Laravel's default notification would point to a route this app doesn't have).
+     */
+    public function sendPasswordResetNotification($token): void
+    {
+        \Illuminate\Support\Facades\Mail::to($this->email)->send(new \App\Mail\PayeePasswordResetMail(
+            $this->name,
+            route('payee.password.reset', ['token' => $token, 'email' => $this->email])
+        ));
+    }
+
     /** Deliveries for this account: every check link emailed to its address. */
     public function deliveries()
     {

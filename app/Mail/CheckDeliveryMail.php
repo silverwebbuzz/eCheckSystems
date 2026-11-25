@@ -59,6 +59,6 @@ class CheckDeliveryMail extends Mailable
 
         return $this->subject($emailContent->subject)
             ->view('user.emails.mail')
-            ->with(['emailContent' => $emailContent]);
+            ->with(['emailContent' => $emailContent, 'hideActionButton' => true]);
     }
 }
