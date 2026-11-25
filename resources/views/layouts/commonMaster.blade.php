@@ -236,6 +236,7 @@
     <!-- Include Scripts -->
     <!-- $isFront is used to append the front layout scripts only on the front layout otherwise the variable will be blank -->
     @include('layouts/sections/scripts' . $isFront)
+    @include('layouts/sections/session-expired')
     <div id="payment-loader" style="display:none;">
         <div class="spinner"></div>
          <p class="m-0 text-dark fs-5" style="margin-left: 20px !important;">Please hold on while we complete your transaction. Do not refresh or close the page.</p>

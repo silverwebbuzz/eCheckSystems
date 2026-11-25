@@ -4,6 +4,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use App\Http\Middleware\LocaleMiddleware;
+use App\Http\Middleware\AjaxSessionExpired;
 
 return Application::configure(basePath: dirname(__DIR__))
   ->withRouting(
@@ -13,7 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     health: '/up',
   )
   ->withMiddleware(function (Middleware $middleware) {
-    $middleware->web(LocaleMiddleware::class);
+    $middleware->web(append: [LocaleMiddleware::class, AjaxSessionExpired::class]);
   })
   ->withExceptions(function (Exceptions $exceptions) {
     //
