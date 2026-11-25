@@ -562,13 +562,24 @@ class CheckController extends Controller
         }
 
         $qboCompany = app(QuickBooksService::class)->activeCompanyForUser(Auth::id());
-        try {
-            [$preparedQboLines, $qboLinesTotal] = app(QuickBooksService::class)
-                ->prepareLocalCheckLineItems($request->input('qbo_lines', []), $qboCompany);
-        } catch (\Throwable $e) {
-            return redirect()->back()
-                ->withErrors(['qbo_lines' => $e->getMessage()])
-                ->withInput();
+
+        // "Sync this check to QuickBooks? Yes/No" is shown only when QuickBooks is connected and
+        // setting 2b (sync_back) is on; its default is Yes. When not shown, keep the default (Yes)
+        // and let the 2b setting decide at Generate time.
+        $showQboChoice = $qboCompany && $qboCompany->sync_back;
+        $qboSync = $showQboChoice ? $request->input('qbo_sync', '1') === '1' : true;
+
+        $preparedQboLines = [];
+        $qboLinesTotal = 0;
+        if ($qboSync) {
+            try {
+                [$preparedQboLines, $qboLinesTotal] = app(QuickBooksService::class)
+                    ->prepareLocalCheckLineItems($request->input('qbo_lines', []), $qboCompany);
+            } catch (\Throwable $e) {
+                return redirect()->back()
+                    ->withErrors(['qbo_lines' => $e->getMessage()])
+                    ->withInput();
+            }
         }
         $requestedAmount = round((float) $request->amount, 2);
 
@@ -622,6 +633,7 @@ class CheckController extends Controller
                     'SignID' => $request->signature_id,
                     'ip_address' => request()->ip(),
                     'qbo_company_id' => $qboCompany?->id,
+                    'qbo_sync' => $qboSync,
                 ]);
             }
 
@@ -710,6 +722,7 @@ class CheckController extends Controller
                 'SignID' => $request->signature_id,
                 'ip_address' => request()->ip(),
                 'qbo_company_id' => $qboCompany?->id,
+                'qbo_sync' => $qboSync,
                 'created_at' => Carbon::now(),
             ]);
 
@@ -2118,6 +2131,13 @@ class CheckController extends Controller
 
         $active = app(QuickBooksService::class)->activeCompanyForUser((int) $check->UserID);
         if (!$active) {
+            return;
+        }
+
+        // Checks that came FROM QuickBooks always keep QuickBooks in step (existing behaviour).
+        // Checks created in eCheck are pushed only when setting 2b (sync_back) is on
+        // and the user did not answer "No" to "Sync this check to QuickBooks?".
+        if (empty($check->qbo_id) && (!$active->sync_back || $check->qbo_sync === false)) {
             return;
         }
 

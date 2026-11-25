@@ -836,7 +836,7 @@
             });
 
             const qboExpenseAccounts = @json($qboAccounts ?? []);
-            const hasQboCategoryDetails = @json(isset($qboCompany) && !empty($qboAccounts));
+            const hasQboCategoryDetails = @json(isset($qboCompany) && $qboCompany && $qboCompany->sync_back && !empty($qboAccounts));
             const $qboTable = $('#qbo-category-details-table');
             const $qboBody = $('#qbo-lines-body');
             const $qboTotal = $('#qbo-line-total-value');
@@ -1373,8 +1373,41 @@
                     </div>
                 </div>
 
-                @if (isset($qboCompany) && !empty($qboAccounts))
-                    <div class="row mt-4">
+                {{-- Client spec #3: shown only when QuickBooks is connected and setting 2b (sync back) is on.
+                     Default = Yes (the 2b setting). "No" skips QuickBooks for this check only. --}}
+                @if (isset($qboCompany) && $qboCompany && $qboCompany->sync_back)
+                    @php
+                        $qboSyncValue = (string) old('qbo_sync', (isset($check) && $check->qbo_sync === false) ? '0' : '1');
+                    @endphp
+                    <div class="row mt-4" id="qbo-sync-choice-row">
+                        <div class="col-sm-12 d-flex align-items-center gap-3 flex-wrap">
+                            <label class="fw-semibold mb-0" for="qbo_sync">
+                                <i class="ti ti-building-bank me-1"></i>Sync this check to QuickBooks?
+                            </label>
+                            <select name="qbo_sync" id="qbo_sync" class="form-select w-auto">
+                                <option value="1" @selected($qboSyncValue === '1')>Yes</option>
+                                <option value="0" @selected($qboSyncValue === '0')>No</option>
+                            </select>
+                            <small class="text-muted">Company: {{ $qboCompany->name }}</small>
+                        </div>
+                    </div>
+                    <script>
+                        // "No" hides the QuickBooks-only Category details (the server ignores them too).
+                        document.addEventListener('DOMContentLoaded', function() {
+                            var choice = document.getElementById('qbo_sync');
+                            var section = document.getElementById('qbo-category-section');
+                            if (!choice || !section) return;
+                            var toggle = function() {
+                                section.style.display = choice.value === '1' ? '' : 'none';
+                            };
+                            choice.addEventListener('change', toggle);
+                            toggle();
+                        });
+                    </script>
+                @endif
+
+                @if (isset($qboCompany) && $qboCompany && $qboCompany->sync_back && !empty($qboAccounts))
+                    <div class="row mt-4" id="qbo-category-section">
                         <div class="col-sm-12">
                             <h5 class="mb-3">Category details</h5>
                             @if ($errors->has('qbo_lines'))

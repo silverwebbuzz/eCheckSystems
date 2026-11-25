@@ -2,15 +2,18 @@
 
 namespace App\Services;
 
+use App\Mail\QboCheckImportedMail;
 use App\Models\CheckLineItem;
 use App\Models\Checks;
 use App\Models\Payors;
 use App\Models\QBOCompany;
 use App\Models\QboSyncLog;
+use App\Models\User;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use QuickBooksOnline\API\DataService\DataService;
 use QuickBooksOnline\API\Facades\Customer;
 use QuickBooksOnline\API\Facades\Item;
@@ -1654,14 +1657,77 @@ class QuickBooksService
         }
 
         if (in_array($operation, ['create', 'update', 'merge'], true)) {
-            if ($entity === 'salesreceipt') {
-                return $this->importSalesReceiptById($qboCompany, $entityId);
+            // Setting 2a: "Create eCheck when QuickBooks creates a check". When off, webhook
+            // creates/updates are ignored (the manual "Sync now" button still imports on demand).
+            if (!$qboCompany->auto_import) {
+                Log::info('QBO webhook ignored — auto import is off', [
+                    'realmId' => $realmId,
+                    'entity' => $entity,
+                    'entityId' => $entityId,
+                ]);
+                return ['imported' => false, 'reason' => 'auto_import_off'];
             }
 
-            return $this->importPurchaseById($qboCompany, $entityId);
+            $result = $entity === 'salesreceipt'
+                ? $this->importSalesReceiptById($qboCompany, $entityId)
+                : $this->importPurchaseById($qboCompany, $entityId);
+
+            if (!empty($result['created'])) {
+                $this->notifyCheckImported(
+                    $qboCompany,
+                    $entityId,
+                    $entity === 'salesreceipt' ? 'Process Payment' : 'Make Payment'
+                );
+            }
+
+            return $result;
         }
 
         return ['imported' => false, 'reason' => 'unknown_operation'];
+    }
+
+    /**
+     * Sub-option of setting 2a: email the account owner that a new QuickBooks check was imported
+     * as a draft and needs review. The check is never generated or emailed to the payee here.
+     * A mail failure must not fail the import job, so errors are only logged.
+     */
+    protected function notifyCheckImported(QBOCompany $qboCompany, string $qboId, string $checkType): void
+    {
+        if (!$qboCompany->notify_on_import) {
+            return;
+        }
+
+        try {
+            $user = User::find($qboCompany->user_id);
+            $check = Checks::where('UserID', $qboCompany->user_id)
+                ->where('qbo_id', $qboId)
+                ->where('CheckType', $checkType)
+                ->first();
+
+            if (!$user || empty($user->Email) || !$check) {
+                return;
+            }
+
+            $party = Payors::withTrashed()->find(
+                $checkType === 'Process Payment' ? $check->PayorID : $check->PayeeID
+            );
+
+            Mail::to($user->Email)->send(new QboCheckImportedMail(
+                trim($user->FirstName . ' ' . $user->LastName),
+                [
+                    'check_number' => $check->CheckNumber,
+                    'payee' => $party->Name ?? '',
+                    'amount' => number_format((float) $check->Amount, 2),
+                    'review_url' => route('qbo.checks.show', ['id' => $check->CheckID]),
+                ]
+            ));
+        } catch (\Throwable $e) {
+            Log::error('QBO import notification email failed', [
+                'qbo_company_id' => $qboCompany->id,
+                'qbo_id' => $qboId,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

@@ -14,7 +14,8 @@ class SyncQuickBooksChecks extends Command
 
     public function handle(): int
     {
-        $query = QBOCompany::active();
+        // Automatic catch-up poll: only for companies with setting 2a (auto import) on.
+        $query = QBOCompany::active()->where('auto_import', true);
         if ($this->option('user')) {
             $query->where('user_id', $this->option('user'));
         }

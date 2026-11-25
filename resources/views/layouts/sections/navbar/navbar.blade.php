@@ -443,6 +443,22 @@
         </li> --}}
         <!--/ Notification -->
 
+        {{-- QuickBooks connection status (client spec #4): always visible for users, links to settings --}}
+        @if (Auth::guard('web')->check() && !Auth::guard('admin')->check())
+            @php
+                $qboHeaderConnected = \App\Models\QBOCompany::forUser(Auth::id())->active()->exists();
+            @endphp
+            <li class="nav-item me-3">
+                <a href="{{ route('qbo.settings') }}"
+                    class="badge {{ $qboHeaderConnected ? 'bg-label-success' : 'bg-label-danger' }} d-inline-flex align-items-center gap-1 py-2 px-3"
+                    title="QuickBooks {{ $qboHeaderConnected ? 'connected' : 'not connected' }}: open QuickBooks settings">
+                    <i class="ti {{ $qboHeaderConnected ? 'ti-circle-check' : 'ti-circle-x' }}"></i>
+                    <span class="d-none d-md-inline">QuickBooks:</span>
+                    {{ $qboHeaderConnected ? 'Connected' : 'Not Connected' }}
+                </a>
+            </li>
+        @endif
+
         <!-- User -->
         <li class="nav-item navbar-dropdown dropdown-user dropdown">
             <a class="nav-link dropdown-toggle hide-arrow p-0" href="javascript:void(0);" data-bs-toggle="dropdown">
