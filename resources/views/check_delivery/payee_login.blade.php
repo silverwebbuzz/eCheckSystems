@@ -21,9 +21,12 @@
                 <label class="form-label small fw-semibold" for="password">Password</label>
                 <input type="password" name="password" id="password" class="form-control" required>
             </div>
-            <div class="form-check mb-3">
-                <input class="form-check-input" type="checkbox" name="remember" value="1" id="remember">
-                <label class="form-check-label small" for="remember">Keep me logged in</label>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="form-check m-0">
+                    <input class="form-check-input" type="checkbox" name="remember" value="1" id="remember">
+                    <label class="form-check-label small" for="remember">Keep me logged in</label>
+                </div>
+                <a href="{{ route('payee.password.request') }}" class="small">Forgot password?</a>
             </div>
             <button type="submit" class="btn btn-ec w-100">Log in</button>
         </form>

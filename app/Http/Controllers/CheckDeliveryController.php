@@ -10,7 +10,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\Rules\Password;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password as PasswordRule;
 
 /**
  * Deluxe-style check delivery (client Point 5).
@@ -74,7 +77,7 @@ class CheckDeliveryController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'password' => ['required', 'confirmed', Password::min(8)],
+            'password' => ['required', 'confirmed', PasswordRule::min(8)],
         ]);
 
         $account = PayeeAccount::create([
@@ -121,6 +124,61 @@ class CheckDeliveryController extends Controller
         $account->update(['last_login_at' => now()]);
 
         return redirect()->route('payee.checks');
+    }
+
+    // ---------------------------------------------------------------- payee "Forgot password"
+
+    public function forgotForm()
+    {
+        return view('check_delivery.payee_forgot');
+    }
+
+    /** Always shows the same message, so nobody can test which emails have an account. */
+    public function sendResetLink(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        try {
+            Password::broker('payees')->sendResetLink(['email' => strtolower(trim($request->email))]);
+        } catch (\Throwable $e) {
+            Log::error('Payee password reset email failed', ['error' => $e->getMessage()]);
+        }
+
+        return back()->with('success', 'If an account exists for that email, we have sent a link to reset the password. Please check your inbox.');
+    }
+
+    public function resetForm(Request $request, string $token)
+    {
+        return view('check_delivery.payee_reset', [
+            'token' => $token,
+            'email' => $request->query('email', ''),
+        ]);
+    }
+
+    public function reset(Request $request)
+    {
+        $request->validate([
+            'token' => 'required',
+            'email' => 'required|email',
+            'password' => ['required', 'confirmed', PasswordRule::min(8)],
+        ]);
+
+        $status = Password::broker('payees')->reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function (PayeeAccount $account, string $password) {
+                $account->password = $password; // hashed by the model cast
+                $account->setRememberToken(Str::random(60));
+                $account->save();
+            }
+        );
+
+        if ($status !== Password::PASSWORD_RESET) {
+            return back()->withInput($request->only('email'))
+                ->withErrors(['email' => 'This reset link is invalid or has expired. Please request a new one.']);
+        }
+
+        return redirect()->route('payee.login', ['email' => $request->email])
+            ->with('success', 'Your password has been reset. Please log in.');
     }
 
     public function logout(Request $request)

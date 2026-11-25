@@ -399,6 +399,12 @@ Route::middleware([CheckBlockedIP::class])->group(function () {
     Route::post('payee/login', [CheckDeliveryController::class, 'login'])
         ->middleware('throttle:10,1')->name('payee.login.submit');
     Route::post('payee/logout', [CheckDeliveryController::class, 'logout'])->name('payee.logout');
+    Route::get('payee/forgot-password', [CheckDeliveryController::class, 'forgotForm'])->name('payee.password.request');
+    Route::post('payee/forgot-password', [CheckDeliveryController::class, 'sendResetLink'])
+        ->middleware('throttle:5,1')->name('payee.password.email');
+    Route::get('payee/reset-password/{token}', [CheckDeliveryController::class, 'resetForm'])->name('payee.password.reset');
+    Route::post('payee/reset-password', [CheckDeliveryController::class, 'reset'])
+        ->middleware('throttle:10,1')->name('payee.password.update');
     Route::get('payee/checks', [CheckDeliveryController::class, 'checks'])->name('payee.checks');
     Route::get('payee/checks/{id}/print', [CheckDeliveryController::class, 'payeePrint'])
         ->whereNumber('id')->name('payee.checks.print');
