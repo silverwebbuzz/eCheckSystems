@@ -174,6 +174,7 @@ use App\Http\Controllers\UserDashboardController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\PayorsController;
 use App\Http\Controllers\CheckController;
+use App\Http\Controllers\CheckDeliveryController;
 use App\Http\Controllers\BillingAndPlanController;
 use App\Http\Controllers\EmailTemplateController;
 use App\Http\Controllers\TestController;
@@ -387,6 +388,20 @@ Route::middleware([CheckBlockedIP::class])->group(function () {
         Route::get('/invoice', [BillingAndPlanController::class, 'invoice'])->name('user_invoice');
         Route::get('pending', [UserAuthController::class, 'pending_sub'])->name('pending_sub');
     });
+
+    // Deluxe-style check delivery (Point 5): payee opens the "Get Check" link from the email.
+    Route::get('get-check/{token}', [CheckDeliveryController::class, 'show'])->name('check_delivery.show');
+    Route::post('get-check/{token}/print', [CheckDeliveryController::class, 'guestPrint'])->name('check_delivery.print');
+    Route::post('get-check/{token}/account', [CheckDeliveryController::class, 'createAccount'])
+        ->middleware('throttle:10,1')->name('check_delivery.account');
+    // Payee accounts (people who receive checks), separate from customer login.
+    Route::get('payee/login', [CheckDeliveryController::class, 'loginForm'])->name('payee.login');
+    Route::post('payee/login', [CheckDeliveryController::class, 'login'])
+        ->middleware('throttle:10,1')->name('payee.login.submit');
+    Route::post('payee/logout', [CheckDeliveryController::class, 'logout'])->name('payee.logout');
+    Route::get('payee/checks', [CheckDeliveryController::class, 'checks'])->name('payee.checks');
+    Route::get('payee/checks/{id}/print', [CheckDeliveryController::class, 'payeePrint'])
+        ->whereNumber('id')->name('payee.checks.print');
 
     Route::get('web-form/{slug}', [CheckController::class, 'web_form'])->name('web_form');
     Route::post('store_web_form_data', [CheckController::class, 'store_web_form_data'])->name('store_web_form_data');
