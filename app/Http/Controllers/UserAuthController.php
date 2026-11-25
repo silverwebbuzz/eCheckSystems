@@ -142,16 +142,18 @@ class UserAuthController extends Controller
                 'status' => 'not connected'
             ]);
 
-            if ($user->needsAccountChoice()) {
-                return redirect()->route('user.account-choice');
+            // No package yet. This check must stay AFTER the approval check and Auth::login,
+            // otherwise approved new users never reach the Trial / Paid choice screen.
+            // - Brand-new approved user (never subscribed): show Trial / Paid choice.
+            // - Returning user whose plan ended (has subscription history): show paid plans.
+            if ($user->CurrentPackageID == null) {
+                return $user->needsAccountChoice()
+                    ? redirect()->route('user.account-choice')
+                    : redirect()->route('user.package', ['user_id' => $user->UserID]);
             }
 
             $packag_c = PaymentSubscription::where('UserID', $user->UserID)->where('PackageID', $user->CurrentPackageID)
                 ->orderBy('PaymentSubscriptionID', 'desc')->first()?->RemainingChecks ?? 0;
-
-            if ($user->CurrentPackageID == null) {
-                return redirect()->route('user.account-choice');
-            }
 
             $package = Package::find($user->CurrentPackageID);
 
