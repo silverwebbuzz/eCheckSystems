@@ -366,6 +366,7 @@ Route::middleware([CheckBlockedIP::class])->group(function () {
             Route::get('/quickbooks/set-active/{id}', [QuickBooksController::class, 'setActive'])->name('qbo.setActive');
             Route::get('/quickbooks/disconnect/{id}', [QuickBooksController::class, 'disconnect'])->name('qbo.disconnect');
             Route::post('/quickbooks/mapping/{id}', [QuickBooksController::class, 'updateMapping'])->name('qbo.updateMapping');
+            Route::post('/quickbooks/integration-settings/{id}', [QuickBooksController::class, 'updateIntegrationSettings'])->name('qbo.updateIntegrationSettings');
             Route::get('/quickbooks/sync/{qbo_company_id?}', [QuickBooksController::class, 'sync'])->name('qbo.sync');
 
             // QuickBooks Checks list

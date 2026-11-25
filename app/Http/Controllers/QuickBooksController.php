@@ -192,6 +192,26 @@ class QuickBooksController extends Controller
         return redirect()->route('qbo.settings')->with('success', 'QuickBooks mapping saved.');
     }
 
+    /**
+     * Integration settings (client spec 2a / 2b) for the user's QuickBooks company.
+     * Checkboxes: an unchecked box is simply not sent, so missing = off.
+     */
+    public function updateIntegrationSettings(Request $request, $id)
+    {
+        $company = QBOCompany::forUser(Auth::id())->where('id', $id)->firstOrFail();
+
+        $autoImport = $request->boolean('auto_import');
+
+        $company->update([
+            'auto_import' => $autoImport,
+            // The email only makes sense when checks are imported automatically.
+            'notify_on_import' => $autoImport && $request->boolean('notify_on_import'),
+            'sync_back' => $request->boolean('sync_back'),
+        ]);
+
+        return redirect()->route('qbo.settings')->with('success', 'QuickBooks integration settings saved.');
+    }
+
     public function sync($qbo_company_id = null)
     {
         $userId = Auth::id();

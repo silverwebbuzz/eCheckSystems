@@ -29,6 +29,9 @@ class QBOCompany extends Model
         'default_bank_account_id',
         'default_bank_account_name',
         'last_sync_at',
+        'auto_import',
+        'notify_on_import',
+        'sync_back',
     ];
 
     protected $casts = [
@@ -36,6 +39,9 @@ class QBOCompany extends Model
         'refresh_token_expires_at' => 'datetime',
         'last_sync_at' => 'datetime',
         'start_date' => 'date',
+        'auto_import' => 'boolean',
+        'notify_on_import' => 'boolean',
+        'sync_back' => 'boolean',
     ];
 
     public function localCompany()

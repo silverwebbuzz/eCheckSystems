@@ -174,6 +174,65 @@
                 </form>
             </div>
         </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-1">Integration settings</h5>
+                <small class="text-muted">Choose what happens between QuickBooks and eCheckSystems for {{ $active->name }}.</small>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ route('qbo.updateIntegrationSettings', $active->id) }}">
+                    @csrf
+
+                    {{-- 2a: incoming --}}
+                    <div class="mb-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="auto_import"
+                                name="auto_import" value="1" @checked($active->auto_import)>
+                            <label class="form-check-label fw-semibold" for="auto_import">
+                                Create check in eCheckSystems when QuickBooks creates a check
+                            </label>
+                        </div>
+                        <div class="form-text ms-5">
+                            New checks from QuickBooks arrive here as <strong>drafts</strong> for you to review.
+                            Nothing is printed or sent to the payee until you generate and send it.
+                            When off, you can still import any time with <strong>Sync now</strong>.
+                        </div>
+
+                        <div class="form-check form-switch ms-5 mt-3">
+                            <input class="form-check-input" type="checkbox" role="switch" id="notify_on_import"
+                                name="notify_on_import" value="1" @checked($active->notify_on_import)
+                                @disabled(!$active->auto_import)>
+                            <label class="form-check-label" for="notify_on_import">
+                                Email me when a new check arrives from QuickBooks
+                            </label>
+                        </div>
+                        <div class="form-text ms-5 ps-5">
+                            Sends you a "ready for review" email with a link to the check.
+                        </div>
+                    </div>
+
+                    {{-- 2b: outgoing --}}
+                    <div class="mb-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="sync_back"
+                                name="sync_back" value="1" @checked($active->sync_back)>
+                            <label class="form-check-label fw-semibold" for="sync_back">
+                                Sync checks back to QuickBooks when generated in eCheckSystems
+                            </label>
+                        </div>
+                        <div class="form-text ms-5">
+                            When on, the Send Payment form shows <strong>"Sync this check to QuickBooks?"</strong>
+                            (default <strong>Yes</strong>), so you can skip single checks.
+                        </div>
+                    </div>
+
+                    <div class="text-end">
+                        <button type="submit" class="btn btn-primary">Save settings</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     @endif
 @endsection
 
@@ -192,5 +251,18 @@
     }
     bindAccountName('default_bank_account_id', 'default_bank_account_name');
     bindAccountName('default_expense_account_id', 'default_expense_account_name');
+
+    // "Email me" only applies when automatic import is on.
+    (function () {
+        const autoImport = document.getElementById('auto_import');
+        const notify = document.getElementById('notify_on_import');
+        if (!autoImport || !notify) return;
+        const sync = () => {
+            notify.disabled = !autoImport.checked;
+            if (!autoImport.checked) notify.checked = false;
+        };
+        autoImport.addEventListener('change', sync);
+        sync();
+    })();
 </script>
 @endsection

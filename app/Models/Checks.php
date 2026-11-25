@@ -43,11 +43,13 @@ class Checks extends Model
         'qbo_company_id',
         'qbo_doc_number',
         'check_number_conflict',
+        'qbo_sync',
     ];
 
     protected $casts = [
         'qbo_print_later' => 'boolean',
         'check_number_conflict' => 'boolean',
+        'qbo_sync' => 'boolean',
     ];
 
     public function payee()
