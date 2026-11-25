@@ -35,6 +35,7 @@ use App\Services\QuickBooksService;
 use App\Jobs\PushCheckToQuickBooksJob;
 use App\Jobs\DeleteCheckFromQuickBooksJob;
 use App\Jobs\MarkQuickBooksCheckPrintedJob;
+use App\Support\QboJobs;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
@@ -173,13 +174,13 @@ class CheckController extends Controller
             
             if($check && in_array($check->Status, ['draft', 'imported_from_qbo'], true)){ 
                 
-                // Sync delete to QuickBooks when linked (queued)
+                // Sync delete to QuickBooks when linked (runs after the response; see QboJobs)
                 if ($check->qbo_id) {
-                    DeleteCheckFromQuickBooksJob::dispatch(
+                    QboJobs::dispatch(new DeleteCheckFromQuickBooksJob(
                         (string) $check->qbo_id,
                         (int) Auth::id(),
                         $check->qbo_company_id ? (int) $check->qbo_company_id : null
-                    )->afterCommit();
+                    ), true);
                 }
 
                 $subscription = PaymentSubscription::where('UserID', Auth::user()->UserID)->where('Status', 'Active')->first();
@@ -1982,9 +1983,9 @@ class CheckController extends Controller
             'is_seen' => 1
         ]);
 
-        // Clear Print later in QuickBooks after printing/downloading (queued)
+        // Clear Print later in QuickBooks after printing/downloading (runs after the response)
         if ($check->qbo_id && $check->qbo_print_later) {
-            MarkQuickBooksCheckPrintedJob::dispatch((int) $check->CheckID)->afterCommit();
+            QboJobs::dispatch(new MarkQuickBooksCheckPrintedJob((int) $check->CheckID), true);
         }
 
         $path = public_path('checks/' . $check->CheckPDF);
@@ -2117,7 +2118,7 @@ class CheckController extends Controller
             return;
         }
 
-        PushCheckToQuickBooksJob::dispatch((int) $check->CheckID)->afterCommit();
+        QboJobs::dispatch(new PushCheckToQuickBooksJob((int) $check->CheckID), true);
     }
 
     protected function saveCheckLineItems(Checks $check, array $preparedQboLines): void

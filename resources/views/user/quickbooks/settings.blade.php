@@ -36,10 +36,14 @@
                 Environment:
                 <strong>{{ config('quickbooks.environment') === 'development' ? 'Sandbox' : 'Production' }}</strong>
                 · Inbound:
-                <strong>Webhook + queue</strong>
+                <strong>Webhook (real time)</strong>
                 <code class="ms-1">POST {{ url('/api/quickbooks/webhook') }}</code>
-                · Incoming: <code>{{ config('quickbooks.queues.inbound') }}</code>
-                · Outgoing: <code>{{ config('quickbooks.queues.outgoing') }}</code>
+                @if (config('quickbooks.dispatch_mode') === 'queue')
+                    · Processing: queue worker
+                    (<code>{{ config('quickbooks.queues.inbound') }}</code>, <code>{{ config('quickbooks.queues.outgoing') }}</code>)
+                @else
+                    · Processing: instant (no queue worker needed)
+                @endif
                 @if ($active && $active->last_sync_at)
                     · Last sync: {{ $active->last_sync_at->format('m/d/Y H:i') }}
                 @endif

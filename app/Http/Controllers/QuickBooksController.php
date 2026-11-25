@@ -8,6 +8,7 @@ use App\Models\Payors;
 use App\Models\QBOCompany;
 use App\Jobs\SyncQuickBooksChecksJob;
 use App\Services\QuickBooksService;
+use App\Support\QboJobs;
 use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -223,10 +224,10 @@ class QuickBooksController extends Controller
             return redirect()->route('qbo.settings')->with('error', 'Connect and activate a QuickBooks company first.');
         }
 
-        SyncQuickBooksChecksJob::dispatch((int) $company->id, (int) $userId);
+        QboJobs::dispatch(new SyncQuickBooksChecksJob((int) $company->id, (int) $userId));
 
         return redirect()->route('qbo.checks')
-            ->with('success', 'QuickBooks sync has been queued. Checks will appear shortly — refresh this page in a moment.');
+            ->with('success', 'QuickBooks sync has started. Checks will appear shortly — refresh this page in a moment.');
     }
 
     /** @deprecated keep old route name working */
