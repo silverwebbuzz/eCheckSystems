@@ -64,6 +64,7 @@
             max-width: 100% !important;
         }
     </style>
+    @include('user.check.partials.echeck-card-style')
     @vite(['resources/assets/vendor/libs/flatpickr/flatpickr.scss', 'resources/assets/vendor/libs/select2/select2.scss'])
 @endsection
 
@@ -525,7 +526,18 @@
 @endsection
 
 @section('content')
-    <div class="card mb-6" style="background: #DDF2D1;">
+    <script>
+        // Edit mode: fill the "amount in words" line on the check once all handlers are bound.
+        // Native event on purpose: this page loads two jQuery copies, and a native event reaches
+        // the #amount handler whichever copy bound it.
+        window.addEventListener('load', function() {
+            var amount = document.getElementById('amount');
+            if (amount && amount.value) {
+                amount.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        });
+    </script>
+    <div class="card mb-6 echeck-card">
         <form action="{{ route('check.process_payment_check_generate') }}" method="POST" enctype="multipart/form-data">
             @csrf
             <div class="card-header d-flex align-items-center justify-content-between mb-5">
@@ -545,8 +557,10 @@
                     <div class="col-sm-6">
                         <div class="row">
                             {{-- <label class="col-sm-12 col-form-label" for="account-name">Account Holder's Name:</label> --}}
-                            <div class="col-sm-8">
+                            <div class="col-sm-10">
                                 <div class="d-flex align-items-center gap-1">
+                                    <img src="https://echecksystems.com/wp-content/uploads/elementor/thumbs/echeck-systems-logo-r3qzixzultt1pr9mur1kl8ksvlbpbynxzcx5fso11c.png"
+                                        alt="eCheck Systems" class="echeck-logo">
                                     <select id="payor" name="payor" class="form-control">
                                         <option value="" selected>Select Pay From</option>
                                         @if(count($payors) > 0)
@@ -592,6 +606,7 @@
                             @endphp
                             {{-- <label class="col-sm-12 col-form-label" for="check-number">Check Number:</label> --}}
                             <div class="col-sm-4 p-0">
+                                <span class="echeck-label text-end">Check No.</span>
                                 <input type="text" id="check_number" name="check_number" class="form-control no-spinner"
                                     placeholder="Check Number" maxlength="6"
                                     oninput="" onkeypress="return /^[0-9]+$/.test(event.key)"
@@ -621,6 +636,7 @@
                         <div class="row text-end justify-content-end">
                             {{-- <label class="col-sm-12 col-form-label" for="check_date">Date:</label> --}}
                             <div class="col-sm-4 p-0">
+                                <span class="echeck-label text-start">Date</span>
                                 <input type="text" id="check_date" name="check_date" class="dob-picker form-control"
                                     placeholder="MM-DD-YYYY"
                                     value="{{ old('check_date', !empty($check->ExpiryDate) ? $check->ExpiryDate : now()->format('m-d-Y')) }}" />
@@ -629,6 +645,7 @@
                                         {{ $errors->first('check_date') }}
                                     </span>
                                 @endif
+                                <div class="echeck-void text-start">void after 90 days</div>
                             </div>
                         </div>
                     </div>
@@ -668,13 +685,10 @@
                     </div>
                 </div>
 
-                <div class="row" style="margin-top: 46px !important;">
+                <div class="row" style="margin-top: 34px !important;">
                     <div class="col-sm-6">
                         <div class="row">
-                            <label class="col-sm-4 col-form-label" for="account-name"
-                                style="font-size: 15px;font-weight: bold;">Pay to the
-                                Order
-                                of:</label>
+                            <label class="col-sm-4 col-form-label echeck-label echeck-payto" for="payee">Pay to the<br>order of</label>
                             <div class="col-sm-8">
                                 <div class="d-flex align-items-center gap-1">
                                     <select id="payee" name="payee" class="form-control" style="font-size: 16px;">
@@ -705,8 +719,7 @@
                     </div>
                     <div class="col-sm-6">
                         <div class="row">
-                            <label class="col-sm-4 col-form-label" for="amount"
-                                style="font-size: 15px;font-weight: bold;text-align: right;">Amount: $</label>
+                            <label class="col-sm-4 col-form-label echeck-dollar" for="amount">$</label>
                             <div class="col-sm-8">
                                 <input type="text" id="amount" name="amount" style="font-size: 16px;"
                                     class="form-control" placeholder="Amount" autocomplete="off" onkeypress="return /^[0-9.]+$/.test(event.key)" 
@@ -722,18 +735,41 @@
                     </div>
                 </div>
 
-                <div class="row" style="margin-top: 40px">
+                {{-- Amount in words, filled live by the #amount input handler (amount_word route) --}}
+                <div class="row" style="margin-top: 18px">
+                    <div class="col-sm-12 d-flex align-items-end gap-2">
+                        <div class="echeck-words"><span id="c_amount_word"></span></div>
+                        <span class="echeck-label pb-1">Dollars</span>
+                    </div>
+                </div>
+
+                <div class="row" style="margin-top: 30px">
                     <div class="col-sm-6">
                         <div class="row">
+                            <div class="col-sm-10 d-flex align-items-end gap-2">
+                                <span class="echeck-label pb-2">Memo</span>
+                                <div class="flex-grow-1">
+                                    <input type="text" id="memo" name="memo" placeholder="Memo"
+                                        class="form-control"
+                                        value="{{ !empty($check->Memo) && $check->Memo ? $check->Memo : old('memo') }}">
+                                    @if ($errors->has('memo'))
+                                        <span class="text-danger">
+                                            {{ $errors->first('memo') }}
+                                        </span>
+                                    @endif
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {{-- Same wording as the generated check PDF when no signature is used --}}
+                    <div class="col-sm-6">
+                        <div class="row justify-content-end">
                             <div class="col-sm-8">
-                                <input type="text" id="memo" name="memo" placeholder="Memo"
-                                    class="form-control"
-                                    value="{{ !empty($check->Memo) && $check->Memo ? $check->Memo : old('memo') }}">
-                                @if ($errors->has('memo'))
-                                    <span class="text-danger">
-                                        {{ $errors->first('memo') }}
-                                    </span>
-                                @endif
+                                <div class="echeck-sign-not-required">
+                                    SIGNATURE NOT REQUIRED<br>
+                                    Your depositor has authorized this payment to payee.
+                                </div>
+                                <div class="echeck-sign-caption">AUTHORIZED SIGNATURE</div>
                             </div>
                         </div>
                     </div>
