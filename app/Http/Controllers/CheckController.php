@@ -925,6 +925,7 @@ class CheckController extends Controller
                                     <a href="' . $send_email_url . '" class="btn">
                                             <i class="menu-icon tf-icons ti ti-mail"></i> ' . $send_email_lable . '
                                     </a>
+                                    ' . \App\Models\CheckDelivery::senderBadgeHtml((int) $row->CheckID) . '
                                     </div>';
                         }
                     } else {

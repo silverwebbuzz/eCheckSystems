@@ -228,11 +228,15 @@ class CheckDeliveryController extends Controller
 
         $delivery->markPrinted($request->ip());
 
-        return response()->file($path, [
+        $response = response()->file($path, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'inline; filename="Check-EC' . $check->CheckNumber . '.pdf"',
-            'Cache-Control' => 'private, no-store',
             'X-Robots-Tag' => 'noindex, nofollow',
         ]);
+        // The check holds bank details: never let shared caches/proxies keep a copy.
+        $response->setPrivate();
+        $response->headers->addCacheControlDirective('no-store');
+
+        return $response;
     }
 }

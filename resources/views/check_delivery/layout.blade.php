@@ -49,7 +49,7 @@
 
         <p class="ec-footer text-center mt-5 mb-0">
             Secure check delivery by eCheckSystems · Need help? Email
-            <a href="mailto:{{ config('mail.from.address') }}">{{ config('mail.from.address') }}</a>
+            <a href="mailto:{{ config('check_delivery.support_email') }}">{{ config('check_delivery.support_email') }}</a>
         </p>
     </main>
 
