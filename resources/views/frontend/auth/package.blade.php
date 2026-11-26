@@ -116,6 +116,40 @@
             margin-bottom: 50px;
         }
 
+        .alert-box {
+            width: 90%;
+            max-width: 900px;
+            padding: 14px 18px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        .alert-danger {
+            background-color: #f8d7da;
+            color: #842029;
+            border: 1px solid #f5c2c7;
+        }
+
+        .alert-warning {
+            background-color: #fff3cd;
+            color: #664d03;
+            border: 1px solid #ffecb5;
+        }
+
+        .alert-success {
+            background-color: #d1e7dd;
+            color: #0f5132;
+            border: 1px solid #badbcc;
+        }
+
+        .alert-link {
+            color: inherit;
+            font-weight: 600;
+            text-decoration: underline;
+        }
+
         .trial_btn {
             background-color: #000000;
             color: #ffffff;
@@ -130,55 +164,56 @@
 
 <body>
     <h1 class="heading">Please Select Package</h1>
+
+    @if (session('success'))
+        <div class="alert-box alert-success" role="alert">
+            {{ session('success') }}
+        </div>
+    @endif
+
+    @if (session('verify_error'))
+        <div class="alert-box alert-danger" role="alert">
+            {{ session('verify_error') }}
+            @if ($resendVerifyLink)
+                <a href="{{ $resendVerifyLink }}" class="alert-link">Click here to resend verification link.</a>
+            @endif
+        </div>
+    @elseif (!$user->EmailVerified)
+        <div class="alert-box alert-warning" role="alert">
+            Your email address is not verified. Please verify your email before selecting a plan.
+            @if ($resendVerifyLink)
+                <a href="{{ $resendVerifyLink }}" class="alert-link">Click here to resend verification link.</a>
+            @endif
+        </div>
+    @endif
+
+    @if (session('error'))
+        <div class="alert-box alert-danger" role="alert">
+            {{ session('error') }}
+        </div>
+    @endif
+
     <div class="pricing-table">
         @foreach ($packages as $package)
-            @if ($package->Name == 'Trial')
-                <div class="pricing-card">
-                    <h3>{{ $package->Name }}</h3>
-                    @if($package->Duration < 30)
-                        <p class="price">${{ $package->Price }} <span>({{ $package->Duration }} days)</span></p>
-                    @else
-                        <p class="price">${{ $package->Price }} <span>monthly</span></p>
+            <div
+                class="pricing-card {{ $package->Name == 'PRO' || $package->Name == 'ENTERPRISE' ? 'popular' : '' }}">
+                <h3>{{ $package->Name }}</h3>
+                <p class="price">${{ $package->Price }} <span>monthly</span></p>
+                <ul class="features">
+                    <li>
+                        Up to {{ $package->Name != 'UNLIMITED' ? $package->CheckLimitPerMonth : 'Unlimited' }}
+                        checks / month
+                    </li>
+                    <li>Email Support</li>
+                    <li>Unlimited Users</li>
+                    @if ($package->Name != 'BASIC')
+                        <li>Custom Webform</li>
                     @endif
-                    <ul class="features">
-                        @if($package->Duration < 30)
-                            <li>Up to {{ $package->CheckLimitPerMonth }} checks / {{ $package->Duration }} days</li>
-                        @else
-                            <li>Up to {{ $package->CheckLimitPerMonth }} checks / month</li>
-                        @endif
-                        <li>Email Support</li>
-                        <li>Unlimited Users</li>
-                        <li>3 mos History Storage</li>
-                    </ul>
-                    <a href="{{ route('user-select-free-package', ['id' => $userId, 'plan' => $package->PackageID]) }}"
-                        class="plan-button">Select Plan</a>
-                </div>
-            @endif
-        @endforeach
-
-        {{-- Show all other packages after Trial --}}
-        @foreach ($packages as $package)
-            @if ($package->Name != 'Trial')
-                <div
-                    class="pricing-card {{ $package->Name == 'PRO' || $package->Name == 'ENTERPRISE' ? 'popular' : '' }}">
-                    <h3>{{ $package->Name }}</h3>
-                    <p class="price">${{ $package->Price }} <span>monthly</span></p>
-                    <ul class="features">
-                        <li>
-                            Up to {{ $package->Name != 'UNLIMITED' ? $package->CheckLimitPerMonth : 'Unlimited' }}
-                            checks / month
-                        </li>
-                        <li>Email Support</li>
-                        <li>Unlimited Users</li>
-                        @if ($package->Name != 'BASIC')
-                            <li>Custom Webform</li>
-                        @endif
-                        <li>3 mos History Storage</li>
-                    </ul>
-                    <a href="{{ route('user-select-package', ['id' => $userId, 'plan' => $package->PackageID]) }}"
-                        class="plan-button">Select Plan</a>
-                </div>
-            @endif
+                    <li>3 mos History Storage</li>
+                </ul>
+                <a href="{{ route('user-select-package', ['id' => $userId, 'plan' => $package->PackageID]) }}"
+                    class="plan-button">Select Plan</a>
+            </div>
         @endforeach
     </div>
 </body>

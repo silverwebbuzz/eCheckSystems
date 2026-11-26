@@ -186,7 +186,30 @@ class AdminDashboardController extends Controller
             $query = User::query();
 
             if ($request->status) {
-                $query->where('Status', $request->status);
+                if ($request->status === 'Trial') {
+                    $query->where('Status', User::STATUS_ACTIVE)
+                          ->where(function ($q) {
+                              $q->where('CurrentPackageID', -1)
+                                ->orWhereNull('approved_at');
+                          });
+                } elseif ($request->status === 'Active') {
+                    $query->where('Status', User::STATUS_ACTIVE)
+                          ->whereNotNull('approved_at')
+                          ->where(function ($q) {
+                              $q->whereNull('CurrentPackageID')
+                                ->orWhere('CurrentPackageID', '!=', -1);
+                          });
+                } else {
+                    if($request->status == 'Inactive'){
+                        $query->where('reason', '!=','Fraud');
+                    }
+                    if($request->status == 'Fraud'){
+                        $query->where('reason','Fraud');
+                        $query->where('Status', 'Inactive');
+                    }else{
+                        $query->where('Status', $request->status);
+                    }
+                }
             }
 
             if ($request->has('order') && $request->order[0]['column'] == 0) {
@@ -240,9 +263,17 @@ class AdminDashboardController extends Controller
                 })
 
                 ->editColumn('status', function ($user) {
-                    return $user->Status == 'Active'
-                        ? '<span class="badge bg-label-primary">' . $user->Status . '</span>'
-                        : '<span class="badge bg-danger">' . $user->Status . '</span>';
+                    if ($user->isPendingApproval() && !$user->isOnTrialPackage()) {
+                        $style = 'background-color: #fd7e14; color: #fff;';
+                        $label = 'Pending Approval';
+                    } else {
+                        $isActive = $user->Status === User::STATUS_ACTIVE;
+                        $style = $isActive
+                            ? 'background-color: #28a745; color: #fff;'
+                            : 'background-color: #6c757d; color: #fff;';
+                        $label = $isActive ? 'Active' : 'Inactive';
+                    }
+                    return '<span class="badge" style="' . $style . '">' . $label . '</span>';
                 })
                 ->editColumn('reason', function ($user) {
                     return $user->reason ? $user->reason : '-';
@@ -264,15 +295,27 @@ class AdminDashboardController extends Controller
                     $editUrl = route('admin.user.edit', ['id' => $user->UserID]);
                     $viewUrl = route('admin.user.view', ['id' => $user->UserID]);
 
-                    return '
-                <div class="d-flex">
+                    $actions = '
+                <div class="d-flex align-items-center gap-1">
                     <a href="' . $editUrl . '" class="dropdown-item">
                         <i class="ti ti-pencil me-1"></i> Edit
                     </a>
                     <a href="' . $viewUrl . '" class="dropdown-item">
                         <i class="ti ti-eye me-1"></i> View
-                    </a>
-                </div>';
+                    </a>';
+
+                    if ($user->isPendingApproval() && !$user->isFraud()) {
+                        $actions .= '
+                    <button class="btn btn-sm btn-success approve-btn" data-id="' . $user->UserID . '" title="Approve">
+                        <i class="ti ti-check me-1"></i> Approve
+                    </button>
+                    <button class="btn btn-sm btn-danger reject-btn" data-id="' . $user->UserID . '" title="Reject as Fraud">
+                        <i class="ti ti-x me-1"></i> Reject
+                    </button>';
+                    }
+
+                    $actions .= '</div>';
+                    return $actions;
                 })
 
                 ->rawColumns(['status', 'reason', 'actions'])
@@ -579,6 +622,61 @@ class AdminDashboardController extends Controller
         return redirect()->route('admin.user.edit', ['id' => $user->UserID, 'type' => 'billing'])->with('success', 'Your plan has been updated successfully');
     }
 
+    public function cancelUserPlan($id)
+    {
+        $user = User::findOrFail($id);
+
+        if (empty($user->SubID) || (string) $user->CurrentPackageID === '-1') {
+            return redirect()
+                ->route('admin.user.edit', ['id' => $id, 'type' => 'billing'])
+                ->with('error', 'This user has no cancellable paid plan.');
+        }
+
+        $paymentSubscription = PaymentSubscription::where('UserID', $user->UserID)
+            ->where('Status', 'Active')
+            ->where('PackageID', $user->CurrentPackageID)
+            ->orderBy('PaymentSubscriptionID', 'desc')
+            ->first();
+
+        if (!$paymentSubscription) {
+            return redirect()
+                ->route('admin.user.edit', ['id' => $id, 'type' => 'billing'])
+                ->with('error', 'No active subscription found for this user.');
+        }
+
+        if (!empty($paymentSubscription->CancelAt)) {
+            return redirect()
+                ->route('admin.user.edit', ['id' => $id, 'type' => 'billing'])
+                ->with('error', 'Cancellation is already scheduled for this user.');
+        }
+
+        $res = $this->subscriptionHelper->cancelAtPeriodEnd($user->SubID);
+
+        if (empty($res)) {
+            return redirect()
+                ->route('admin.user.edit', ['id' => $id, 'type' => 'billing'])
+                ->with('error', 'Unable to cancel subscription. Please try again.');
+        }
+
+        $paymentSubscription->CancelAt = $paymentSubscription->NextRenewalDate;
+        $paymentSubscription->save();
+
+        try {
+            $package = Package::find($paymentSubscription->PackageID);
+            $user_name = $user->FirstName . ' ' . $user->LastName;
+            $data = [
+                'plan_name' => $package->Name ?? '',
+                'end_date' => Carbon::parse($paymentSubscription->NextRenewalDate)->format('m/d/Y'),
+            ];
+            Mail::to($user->Email)->send(new SendCancelSubMail(9, $user_name, $data));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Admin cancel plan email failed: ' . $e->getMessage());
+        }
+
+        return redirect()
+            ->route('admin.user.edit', ['id' => $id, 'type' => 'billing'])
+            ->with('success', 'User subscription cancellation has been scheduled.');
+    }
 
     public function company(Request $request, $id)
     {
@@ -696,14 +794,21 @@ class AdminDashboardController extends Controller
     {
         $user = User::findOrFail($request->id);
 
-        // If status is being updated
         if ($request->has('status')) {
+            $statusMap = [
+                'active' => User::STATUS_ACTIVE,
+                'inactive' => User::STATUS_INACTIVE,
+            ];
 
-            $status = $request->status === 'active' ? 'Active' : 'Inactive';
+            $status = $statusMap[strtolower($request->status)] ?? null;
+
+            if (!$status || !in_array($status, [User::STATUS_ACTIVE, User::STATUS_INACTIVE], true)) {
+                return response()->json(['message' => 'Invalid status. Status must be Active or Inactive.'], 422);
+            }
+
             $user->Status = $status;
 
-            // If activating user → clear reason
-            if ($status === 'Active') {
+            if ($status === User::STATUS_ACTIVE) {
                 $user->reason = null;
                 $fraudService->removeFraudBlock($user);
             } else {
@@ -711,12 +816,8 @@ class AdminDashboardController extends Controller
             }
         }
 
-        // If reason is being updated
         if ($request->has('reason')) {
-
-            // Only allow reason if user is inactive
-            if ($user->Status === 'Inactive') {
-
+            if ($user->Status === User::STATUS_INACTIVE) {
                 $user->reason = $request->reason;
 
                 if ($request->reason === 'Fraud') {
@@ -729,11 +830,85 @@ class AdminDashboardController extends Controller
 
         $user->save();
 
-        return response()->json([
-            'message' => 'Status updated successfully.'
-        ]);
+        return response()->json(['message' => 'Status updated successfully.']);
     }
 
+
+    public function approveClient(Request $request, FraudService $fraudService)
+    {
+        $user = User::findOrFail($request->id);
+
+        if ($user->isFraud()) {
+            return response()->json(['message' => 'Fraud clients cannot be approved from this action.'], 422);
+        }
+
+        if (!empty($user->approved_at)) {
+            return response()->json(['message' => 'Client is already approved.', 'already_done' => true]);
+        }
+
+        if (!$user->isPendingApproval()) {
+            return response()->json(['message' => 'Client cannot be approved from current status.'], 422);
+        }
+
+        $fraudService->removeFraudBlock($user);
+
+        $user->Status = User::STATUS_ACTIVE;
+        $user->reason = null;
+        $user->approved_at = now();
+        $user->approved_by = Auth::guard('admin')->user()->AdminID;
+        $user->save();
+
+        try {
+            $name = $user->FirstName . ' ' . $user->LastName;
+            Mail::to($user->Email)->send(new \App\Mail\SendEmail(15, $name));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Approval email failed: ' . $e->getMessage());
+        }
+
+        return response()->json(['message' => 'Client approved successfully.']);
+    }
+
+    public function rejectClient(Request $request, FraudService $fraudService)
+    {
+        $user = User::findOrFail($request->id);
+
+        if ($user->isFraud()) {
+            return response()->json(['message' => 'Client is already marked as fraud.', 'already_done' => true]);
+        }
+
+        if (!$user->isPendingApproval() && !($user->isOnTrialPackage() && $user->Status === User::STATUS_ACTIVE)) {
+            return response()->json(['message' => 'Client cannot be rejected from current status.'], 422);
+        }
+
+        // Cancel any active Stripe subscription without charging
+        if (!empty($user->SubID)) {
+            try {
+                $this->subscriptionHelper->cancelImmediately($user->SubID);
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Stripe cancel on reject failed: ' . $e->getMessage());
+            }
+        }
+
+        $user->Status = User::STATUS_INACTIVE;
+        $user->reason = 'Fraud';
+        $user->save();
+
+        // Block IPs
+        $fraudService->handleFraudUser($user);
+
+        // Delete sessions
+        DB::table('sessions')->where('user_id', $user->UserID)->delete();
+
+        // Send rejection email
+        try {
+            $name = $user->FirstName . ' ' . $user->LastName;
+            Mail::to($user->Email)->send(new \App\Mail\SendEmail(16, $name));
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Rejection email failed: ' . $e->getMessage());
+        }
+
+        return response()->json(['message' => 'Client rejected as fraud.']);
+    }
 
     public function user_view($id)
     {

@@ -39,7 +39,8 @@ class SubscriptionController extends Controller
         // }
 
         if ($user->EmailVerified == false) {
-            return redirect()->back()->with('verify_error', 'Your email is not verified.');
+            return redirect()->route('user.package', ['user_id' => $id])
+                ->with('verify_error', 'Your email is not verified. Please verify your email before selecting a plan.');
         }
 
         $package = Package::find($plan);
@@ -48,8 +49,15 @@ class SubscriptionController extends Controller
             return redirect()->back();
         }
 
+        $customerId = $this->subscriptionHelper->ensureCustomer($user);
+
+        if (empty($customerId)) {
+            return redirect()->route('user.package', ['user_id' => $id])
+                ->with('error', 'Unable to create Stripe customer. Please try again.');
+        }
+
         $data = [
-            'cusID' => $user->CusID,
+            'cusID' => $customerId,
             'price_id' => $package->PriceID,
             'user_id' => $id,
             'plan' => $plan,
@@ -83,6 +91,11 @@ class SubscriptionController extends Controller
 
         $session_data = $session->json();
         $subscriptionId = $session_data['subscription'] ?? null;
+        $customerId = $session_data['customer'] ?? null;
+
+        if ($customerId) {
+            $this->subscriptionHelper->syncCustomerId($user, $customerId);
+        }
 
         if (!$subscriptionId) {
             abort(500, 'Subscription ID missing in session.');
@@ -98,6 +111,46 @@ class SubscriptionController extends Controller
         $invoiceData = null;
         if ($invoice->successful() && !empty($invoice->json('data.0'))) {
             $invoiceData = $invoice->json('data.0');
+        }
+
+        if (empty($user->CurrentPackageID)) {
+            $user->CurrentPackageID = $plan;
+            $user->SubID = $subscriptionId;
+            $user->UpdatedAt = now();
+            $user->save();
+        }
+
+        if (!PaymentSubscription::where('UserID', $user->UserID)->exists() && !empty($invoiceData)) {
+            $packages = Package::findOrFail($plan);
+            $line = $invoiceData['lines']['data'][0] ?? null;
+            $startTimestamp = $line['period']['start'] ?? time();
+            $endTimestamp = $line['period']['end'] ?? time();
+
+            $paymentStartDate = Carbon::createFromTimestamp($startTimestamp)->toDateString();
+            $paymentEndDate = Carbon::createFromTimestamp($startTimestamp)->addHours(24)->toDateString();
+            $nextRenewalDate = Carbon::createFromTimestamp($endTimestamp)->toDateString();
+
+            PaymentSubscription::create([
+                'UserID' => $user->UserID,
+                'PackageID' => $packages->PackageID,
+                'PaymentMethodID' => 1,
+                'PaymentAmount' => ($invoiceData['amount_paid'] ?? 0) / 100,
+                'PaymentStartDate' => $paymentStartDate,
+                'PaymentEndDate' => $paymentEndDate,
+                'NextRenewalDate' => $nextRenewalDate,
+                'ChecksGiven' => $packages->CheckLimitPerMonth,
+                'ChecksReceived' => 0,
+                'ChecksSent' => 0,
+                'ChecksUsed' => 0,
+                'RemainingChecks' => $packages->CheckLimitPerMonth,
+                'PaymentDate' => Carbon::createFromTimestamp($startTimestamp)->toDateTimeString(),
+                'Status' => 'Active',
+                'TransactionID' => $invoiceData['id'],
+                'NextPackageID' => null,
+                'created_at' => Carbon::now(),
+                'ip_address' => request()->ip(),
+                'is_sys_generated' => 0,
+            ]);
         }
 
         $invoiceId = $invoiceData['id'] ?? null;
@@ -125,7 +178,7 @@ class SubscriptionController extends Controller
 
             // Mail::to($user->Email)->send(new RegistrationVerificationMail(12, $user->FirstName.' '.$user->LastName,$link_button,$link));   
             Mail::to($user->Email)->send(new SendNewSubMail(6, $user_name, $data));
-            Mail::to(env('ADMIN_EMAIL'))->send(new AdminMail(10, $packages->Name, $user_name, $user->Email));
+            // Mail::to(env('ADMIN_EMAIL'))->send(new AdminMail(10, $packages->Name, $user_name, $user->Email));
             // Optional: redirect or show a view
             if ($user->EmailVerified == 1) {
                 return redirect()->route('user.login');
@@ -172,8 +225,13 @@ class SubscriptionController extends Controller
         
         $stripeSecretKey = env('STRIPE_SECRET');
         $paymentMethodId = $request->payment_method;
-        $customerId = Auth::user()->CusID;
-        $subscriptionId = Auth::user()->SubID;
+        $user = Auth::user();
+        $customerId = $this->subscriptionHelper->ensureCustomer($user);
+        $subscriptionId = $user->SubID;
+
+        if (empty($customerId)) {
+            return redirect()->back()->with('error_card', 'Unable to create Stripe customer.');
+        }
 
         try {
             // Step 1: List existing payment methods

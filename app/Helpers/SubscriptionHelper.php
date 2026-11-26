@@ -87,6 +87,76 @@ class SubscriptionHelper
         }
     }
 
+    public function ensureCustomer(\App\Models\User $user): ?string
+    {
+        if (!empty($user->CusID)) {
+            return $user->CusID;
+        }
+
+        $customer = $this->addCustomer([
+            'name' => trim($user->FirstName . ' ' . $user->LastName),
+            'email' => $user->Email,
+        ]);
+
+        if (empty($customer['id'])) {
+            Log::error('Stripe customer creation failed for user ' . $user->UserID, [
+                'email' => $user->Email,
+            ]);
+            return null;
+        }
+
+        $user->CusID = $customer['id'];
+        $user->UpdatedAt = now();
+        $user->save();
+
+        return $customer['id'];
+    }
+
+    public function syncCustomerId(\App\Models\User $user, ?string $customerId): ?string
+    {
+        if (empty($customerId)) {
+            return $user->CusID ?: null;
+        }
+
+        if ($user->CusID !== $customerId) {
+            $user->CusID = $customerId;
+            $user->UpdatedAt = now();
+            $user->save();
+        }
+
+        return $customerId;
+    }
+
+    public function findUserByStripeCustomer(string $customerId): ?\App\Models\User
+    {
+        $user = \App\Models\User::where('CusID', $customerId)->first();
+
+        if ($user) {
+            return $user;
+        }
+
+        $response = Http::withBasicAuth(config('services.stripe.secret'), '')
+            ->get("https://api.stripe.com/v1/customers/{$customerId}");
+
+        if (!$response->successful()) {
+            return null;
+        }
+
+        $email = $response->json('email');
+
+        if (empty($email)) {
+            return null;
+        }
+
+        $user = \App\Models\User::where('Email', $email)->first();
+
+        if ($user) {
+            $this->syncCustomerId($user, $customerId);
+        }
+
+        return $user;
+    }
+
     public function addPrice($product, $amount)
     {
         $response = Http::withBasicAuth(config('services.stripe.secret'), '')
@@ -377,7 +447,6 @@ class SubscriptionHelper
                     'phases[1][start_date]' => $currentPeriodEnd,
                     'phases[1][items][0][price]' => $newPriceId,
                     'phases[1][items][0][quantity]' => 1,
-                    'phases[1][iterations]' => 1,
                     'end_behavior' => 'release',
                 ]);
             Log::info($updateResponse->json());

@@ -19,7 +19,7 @@
         body {
             margin: 0 auto;
         }
-        
+
         @font-face {
             font-family: "MICRCheckPrixa";
             src: url("./font/MICRCheckPrixa.eot");
@@ -32,137 +32,151 @@
     </style>
 </head>
 
-<body style="padding: 20px; font-family: Arial, sans-serif">
-    <table style="background-color: #ecedf6; padding: 10px 30px; border: 1px solid #000; height: 2.75in" width="100%">
+@php
+    $accent = '#7367f0';
+    $accentDark = '#6258cc';
+    $paperBg = '#f9f9fe';
+    $bandBg = '#f4f3fe';
+    $label = '#68757a';
+    $muted = '#9aa6aa';
+    $text = '#1d2a2e';
+    $line = '#aeb9bd';
+    $checkNo = (isset($send_check) && $send_check == 1) ? 'EC' . $data['check_number'] : $data['check_number'];
+    $amountValue = isset($send_check) && $send_check == 1 ? $data['amount'] : $data['total'];
+@endphp
+
+<body style="padding: 18px; font-family: DejaVu Sans, Arial, sans-serif; color: {{ $text }};">
+    <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #d3d8db; background: {{ $paperBg }};">
         <tr>
-            <td>
-                <table border="0" width="100%" cellspacing="0" cellpadding="5"
-                    style="border-collapse: collapse; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5">
+            <td style="height: 6px; background: {{ $accent }}; font-size: 1px; line-height: 6px;">&nbsp;</td>
+        </tr>
+        <tr>
+            <td style="padding: 22px 28px 12px 20px;">
+                <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
                     <tr>
-                        <td style="text-align: left" colspan="2">
-                            <table>
+                        <td style="vertical-align: top; width: 62%;">
+                            <table cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
                                 <tr>
-                                    <td>
-                                        <span
-                                            style="display: inline-block; vertical-align: top; font-size: 18px; line-height: 20px">
-                                            <span class="company name" style="font-size: 20px; font-weight: bold">
-                                                {{ $data['payor_name'] }}</span>
-                                            <br />
+                                    <td width="58" style="vertical-align: middle; padding-right: 20px;">
+                                        <img src="https://echecksystems.com/wp-content/uploads/elementor/thumbs/echeck-systems-logo-r3qzixzultt1pr9mur1kl8ksvlbpbynxzcx5fso11c.png" width="130" height="50" alt="logo" />
+                                    </td>
+                                    <td style="vertical-align: middle;">
+                                        <div style="font-size: 16px; font-weight: bold; letter-spacing: 0.02em; color: {{ $text }};">
+                                            {{ $data['payor_name'] }}
+                                        </div>
+                                        <div style="font-size: 11px; color: {{ $label }}; line-height: 1.45; margin-top: 2px;">
                                             @if (!empty($data['address1']))
-                                                {{ $data['address1'] }}<br />
-                                            @endif
-                                            @if (!empty($data['address2']))
-                                                {{ $data['address2'] }}<br />
+                                                {{ $data['address1'] }}@if (!empty($data['address2'])), {{ $data['address2'] }}@endif<br />
                                             @endif
                                             {{ $data['city'] }}, {{ $data['state'] }} {{ $data['zip'] }}
-                                        </span>
+                                            @if (!empty($data['bank_name']))
+                                                <br />{{ $data['bank_name'] }}
+                                            @endif
+                                        </div>
                                     </td>
                                 </tr>
                             </table>
                         </td>
-                        <td></td>
-                        <td style="text-align: right; width: 350px">
-                            <span
-                                style="font-size: 22px; font-weight: bold">{{ (isset($send_check) && $send_check==1) ? 'EC'.$data['check_number'] : $data['check_number'] }}</span><br /><br /><span
-                                style="font-size: 16px">DATE: <span
-                                    style="border-bottom: 1px solid #000; font-size: 22px; font-weight: 500;">{{ $data['check_date'] }}</span>
-                                <br />
-                                void after 90 days</span>
+                        <td style="vertical-align: top; text-align: right; width: 38%;">
+                            <div style="font-size: 11px; letter-spacing: 0.12em; color: {{ $label }};">
+                                CHECK NO.
+                                <span style="color: {{ $accentDark }}; font-weight: bold; font-family: DejaVu Sans Mono, monospace; letter-spacing: 0;">{{ $checkNo }}</span>
+                            </div>
+                            <div style="margin-top: 16px;">
+                                <table cellspacing="0" cellpadding="0" style="border-collapse: collapse; margin-left: auto;">
+                                    <tr>
+                                        <td style="font-size: 10px; letter-spacing: 0.12em; color: {{ $label }}; padding-right: 8px; vertical-align: bottom;">DATE</td>
+                                        <td style="border-bottom: 1px solid {{ $line }}; min-width: 140px; padding: 0 4px 2px 4px; font-size: 13px; font-weight: bold; text-align: center; vertical-align: bottom;">
+                                            {{ $data['check_date'] }}
+                                        </td>
+                                    </tr>
+                                </table>
+                                <div style="font-size: 9px; color: {{ $muted }}; margin-top: 4px;">void after 90 days</div>
+                            </div>
                         </td>
                     </tr>
                 </table>
-                <table border="0" width="100%" cellspacing="0" cellpadding="5">
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 10px 28px 0 28px;">
+                <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
                     <tr>
-                        <td style="text-align: right; height: 24px"></td>
-                    </tr>
-                </table>
-                <table border="0" width="100%" cellspacing="0" cellpadding="5">
-                    <tr>
-                        <td style="padding: 0; width: 105px; color: #000"><span
-                                style="font-size: 20px; line-height: 21px">PAY </span><span
-                                style="font-size: 16px; line-height: 17px">TO THE ORDER OF</span></td>
-                        <td
-                            style="border-bottom: 1px solid black; padding: 0; font-size: 22px; padding: 2px 10px 7px 10px; vertical-align: bottom">
-                            <span style="font-weight: 500;">{{ $data['payee_name'] }}</span>
+                        <td style="width: 78px; font-size: 10px; letter-spacing: 0.08em; color: {{ $label }}; line-height: 1.35; vertical-align: middle;">
+                            PAY TO THE<br />ORDER OF
                         </td>
-                        <td style="width: 15px; text-align: right; font-size: 20px; vertical-align: middle"></td>
-                        <td
-                            style="width: 250px; background-color: #fff; vertical-align: middle; text-align: left; padding: 10px 10px; font-size: 24px; font-weight: 500;">
-                            $ {{ isset($send_check) && $send_check == 1 ? $data['amount'] : $data['total'] }}</td>
-                    </tr>
-                </table>
-                <table border="0" width="100%" cellspacing="0" cellpadding="5"
-                    style="border-collapse: collapse; font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5">
-                    <tr>
-                        <td
-                            style="border-bottom: 1px solid black; padding: 20px 0 7px 5px; font-size: 22px; line-height: 25px; vertical-align: bottom; height: 45px; font-weight: 500;">
-                            {{ $data['amount_word'] }}</td>
-                        <td
-                            style="padding: 0; font-size: 17px; width: 65px; text-align: right; vertical-align: bottom; height: 45px">
-                            Dollars</td>
-                    </tr>
-                </table>
-                <table border="0" width="100%" cellspacing="0" cellpadding="5"
-                    style="border-collapse: collapse; font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5">
-                    <tr style="height: 50px; font-size: 18px">
-                        <td style="vertical-align: bottom; padding-top: 10px">{{ $data['bank_name'] }}</td>
-                    </tr>
-                </table>
-                <table border="0" width="100%" cellspacing="0" cellpadding="5"
-                    style="border-collapse: collapse; font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5">
-                    <tr style="height: 50px; font-size: 12px">
-                        <td style="width: 55px; height: 80px; vertical-align: bottom; font-size: 18px">Memo</td>
-                        <td
-                            style="height: 80px; border-bottom: 1px solid black; padding: 0; font-size: 18px; padding: 2px 10px 7px 7px; vertical-align: bottom; width: 40%">
-                            <span>{{ $data['memo'] }}</span>
+                        <td style="border-bottom: 1px solid {{ $line }}; padding: 4px 10px 6px 10px; font-size: 15px; font-weight: bold; vertical-align: bottom;">
+                            {{ $data['payee_name'] }}
                         </td>
-                        <td style="width: 200px;height: 80px;"></td>
-                        <td
-                            style="font-size: 12px; padding: 10px; background-color: #fff; border-radius: 10px;height: 80px;">
+                        <td style="width: 18px; text-align: center; font-size: 20px; color: {{ $accentDark }}; font-weight: bold; vertical-align: middle; padding: 0 6px;">$</td>
+                        <td style="width: 140px; height: 34px; border: 1.5px solid {{ $accent }}; background: #ffffff; text-align: center; vertical-align: middle; font-size: 16px; font-weight: bold;">
+                            {{ $amountValue }}
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 18px 28px 0 28px;">
+                <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                    <tr>
+                        <td style="border-bottom: 1px solid {{ $line }}; padding: 4px 8px 6px 4px; font-size: 14px; font-weight: bold; vertical-align: bottom;">
+                            {{ $data['amount_word'] }}
+                        </td>
+                        <td style="width: 72px; font-size: 10px; letter-spacing: 0.12em; color: {{ $label }}; text-align: right; vertical-align: bottom; padding-bottom: 6px;">
+                            DOLLARS
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 22px 28px 18px 28px;">
+                <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                    <tr>
+                        <td style="vertical-align: bottom; width: 55%;">
+                            <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                                <tr>
+                                    <td style="width: 48px; font-size: 10px; letter-spacing: 0.12em; color: {{ $label }}; vertical-align: bottom; padding-bottom: 4px;">MEMO</td>
+                                    <td style="border-bottom: 1px solid {{ $line }}; padding: 2px 8px 4px 8px; font-size: 12px; vertical-align: bottom;">
+                                        {{ $data['memo'] }}
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                        <td style="width: 24px;"></td>
+                        <td style="width: 240px; vertical-align: bottom; text-align: center;">
                             @if (!empty($data['signature']))
-                                <div style="text-align:center;">
-                                    <img width="300px" style="text-align:center; display:block; margin:0 auto;"
-                                        src="{{ asset('sign/' . $data['signature']) }}" alt="signature img" />
+                                <div style="border-bottom: 1px solid #7d8a8f; height: 48px; text-align: center;">
+                                    <img src="{{ public_path('sign/' . $data['signature']) }}" alt="signature" style="max-height: 44px; max-width: 220px;" />
                                 </div>
                             @else
-                                SIGNATURE NOT REQUIRED<br />
-                                Your depositor has authorized this payment to payee.<br />
-                                Payee to hold you harmless for payment of this document.<br />
-                                This document shall be deposited only to the credit of payee.
+                                <div style="border-bottom: 1px solid #7d8a8f; min-height: 28px; font-size: 9px; color: {{ $label }}; padding: 2px 4px 4px 4px; text-align: left; line-height: 1.25;">
+                                    SIGNATURE NOT REQUIRED<br />
+                                    Your depositor has authorized this payment to payee.
+                                </div>
                             @endif
+                            <div style="font-size: 9px; letter-spacing: 0.1em; color: {{ $muted }}; margin-top: 4px;">AUTHORIZED SIGNATURE</div>
                         </td>
                     </tr>
                 </table>
             </td>
         </tr>
-    </table>
-    <table border="0" width="100%" cellspacing="0" cellpadding="5">
         <tr>
-            <td style="height: 20px"></td>
-        </tr>
-    </table>
-    <table width="100%">
-        <tr>
-            <td>
-                <table border="0" width="100%" cellspacing="0" cellpadding="5"
-                    style="border-collapse: collapse; font-family: 'MICRCheckPrixa'">
-                    <tr style="height: 50px; font-size: 15px">
-                        <td style="font-size: 30px; padding: 10px; text-align: center; font-family: 'MICRCheckPrixa'">
-                            @if ($data['package'] == -1)
-                                ;VOID;
-                                :VOID:
-                                VOID;
-                            @else
-                                ;{{ str_pad($data['check_number'], 6, '0', STR_PAD_LEFT) }};
-                                :{{ $data['routing_number'] }}:
-                                {{ $data['account_number'] }};
-                            @endif
-                        </td>
-                    </tr>
-                </table>
+            <td style="background: {{ $bandBg }}; border-top: 1px solid #dde3e5; padding: 10px 28px; text-align: center;">
+                <div style="font-family: 'MICRCheckPrixa', DejaVu Sans Mono, monospace; font-size: 22px; letter-spacing: 0.08em; color: #7d8a8f;">
+                    @if ($data['package'] == -1)
+                        ;VOID; :VOID: VOID;
+                    @else
+                        ;{{ str_pad($data['check_number'], 6, '0', STR_PAD_LEFT) }};
+                        :{{ $data['routing_number'] }}:
+                        {{ $data['account_number'] }};
+                    @endif
+                </div>
             </td>
         </tr>
     </table>
+
     <table border="0" width="100%" cellspacing="0" cellpadding="5">
         <tr>
             <td style="height: 15px"></td>
@@ -172,13 +186,13 @@
         <tr>
             <td>
                 <span style="width: 100%; display: block">
-                    <img src="{{ asset('assets/cut_here.png') }}" alt="" width="100%" />
+                    <img src="{{ public_path('assets/cut_here.png') }}" alt="" width="100%" />
                 </span>
             </td>
         </tr>
     </table>
     @if (isset($data['grid_items']) && !empty($data['grid_items']))
-        <table width="100%" style="font-size:18px; text-align: center; border: 2px solid #b2c6cd; margin: 40px auto;" width="100%" cellspacing="0" cellpadding="5">
+        <table width="100%" style="font-size:18px; text-align: center; border: 2px solid #b2c6cd; margin: 40px auto;" cellspacing="0" cellpadding="5">
             <thead>
                 <tr style="border: 2px solid #b2c6cd;">
                     @foreach ($data['grid_headers'] as $header)
@@ -187,14 +201,14 @@
                         </th>
                     @endforeach
                 </tr>
-            </thead>    
+            </thead>
             <tbody>
                 @foreach ($data['grid_items'] as $item)
                     <tr style="border: 2px solid #b2c6cd;">
-                        @foreach($item as $val)
-                        <td style="border: 2px solid #b2c6cd;">
-                            {{ $val }}
-                        </td>
+                        @foreach ($item as $val)
+                            <td style="border: 2px solid #b2c6cd;">
+                                {{ $val }}
+                            </td>
                         @endforeach
                     </tr>
                 @endforeach
@@ -312,7 +326,7 @@
                             </div>
                             <div style="margin-bottom: 5px; font-size: 20px">
                                 <strong>Check number: </strong>
-                                <span>{{ (isset($send_check) && $send_check==1) ? 'EC'.$data['check_number'] : $data['check_number'] }}</span>
+                                <span>{{ $checkNo }}</span>
                             </div>
                             <div style="margin-bottom: 5px; font-size: 20px">
                                 <strong>From: </strong>

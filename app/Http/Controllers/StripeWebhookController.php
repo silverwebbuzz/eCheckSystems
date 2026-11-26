@@ -112,6 +112,10 @@ class StripeWebhookController extends Controller
             $user = User::where('CusID', $invoice['customer'])
                 ->where('SubID', $sub_id)->first();
 
+            if (!$user) {
+                $user = $this->subscriptionHelper->findUserByStripeCustomer($invoice['customer']);
+            }
+
             // $old_package = Package::where('PackageID', $user->CurrentPackageID)->first();
 
             // if ($new_package->Price >= $old_package->Price) {
@@ -189,8 +193,13 @@ class StripeWebhookController extends Controller
 
             $subscription = $event['data']['object'];
 
-            $user = User::where('CusID', $subscription['customer'])
-                ->where('SubID', $subscription['id'])->first();
+            $user = $this->subscriptionHelper->findUserByStripeCustomer($subscription['customer']);
+
+            if (!$user) {
+                DB::rollBack();
+                Log::info('Webhook customer.subscription.deleted: user not found for customer ' . $subscription['customer']);
+                return;
+            }
 
             $atEndSubCanceled = PaymentSubscription::where('UserID', $user->UserID)->where('PackageID', $user->CurrentPackageID)
                 ->whereNotNull('CancelAt')->where('Status', 'Active')
@@ -218,9 +227,11 @@ class StripeWebhookController extends Controller
                 Mail::to($user->Email)->send(new StripeCancelSubMail(14, $user_name, $data));
             }
 
-            $user->update([
-                'CurrentPackageID' => null
-            ]);
+            $userUpdate = ['CurrentPackageID' => null];
+            // if ($user->Status === 'Active') {
+            //     $userUpdate['Status'] = 'Inactive';
+            // }
+            $user->update($userUpdate);
 
             DB::commit();
 
@@ -244,20 +255,43 @@ class StripeWebhookController extends Controller
             $invoice = $event['data']['object'];
             Log::info('ip address');
             Log::info($invoice);
-            $user = User::where('CusID', $invoice['customer'])->first();
+            $user = $this->subscriptionHelper->findUserByStripeCustomer($invoice['customer']);
+
+            if (!$user) {
+                DB::rollBack();
+                Log::info('Webhook invoice.payment_succeeded: user not found for customer ' . $invoice['customer']);
+                return;
+            }
 
             $response = $this->subscriptionHelper->getSubscriptions($invoice['customer']);
 
+            if (empty($response['data'][0])) {
+                DB::rollBack();
+                Log::info('Webhook invoice.payment_succeeded: no active subscription for customer ' . $invoice['customer']);
+                return;
+            }
+
             $stripe_product_id = $response['data'][0]['plan']['product'];
             $newPackage = Package::where('ProductID', $stripe_product_id)->first();
+
+            if (!$newPackage) {
+                DB::rollBack();
+                Log::info('Webhook invoice.payment_succeeded: package not found for product ' . $stripe_product_id);
+                return;
+            }
 
             $CurrentPaymentSubscription = PaymentSubscription::where('UserID', $user->UserID)
             // ->where('PackageID', $user->CurrentPackageID)
                 ->orderBy('PaymentSubscriptionID', 'desc')->first();
 
-            $current_subscription_id = $CurrentPaymentSubscription?->PaymentSubscriptionID;
+            $newPaymentSubscription = null;
 
-            if ($CurrentPaymentSubscription && $CurrentPaymentSubscription->Status == 'Active') {
+            if (!$CurrentPaymentSubscription) {
+                $subscription = 'created';
+                $newPaymentSubscription = $this->generateSubscription($invoice, $user, $newPackage);
+                $remarks = 'Purchased "' . $newPackage->Name . '" Plan';
+
+            } elseif ($CurrentPaymentSubscription->Status == 'Active') {
                 
                 if ($user->CurrentPackageID == '-1') {
 
@@ -323,13 +357,13 @@ class StripeWebhookController extends Controller
                 // }
               
 
-            }else if($CurrentPaymentSubscription && $CurrentPaymentSubscription->Status == 'Canceled'){
+            } elseif ($CurrentPaymentSubscription->Status == 'Canceled') {
                 $subscription = 'canceled';
                 
                 $remarks = 'Purchased "' . $newPackage->Name . '" Plan';
                 $newPaymentSubscription = $this->generateSubscription($invoice, $user, $newPackage);
 
-            }else if($CurrentPaymentSubscription && $CurrentPaymentSubscription->Status == 'Pending'){
+            } elseif ($CurrentPaymentSubscription->Status == 'Pending') {
 
                 $subscription = 'pendingClear';
                 
@@ -347,26 +381,31 @@ class StripeWebhookController extends Controller
 
             
 
-            if ($subscription == 'created') {
+            if ($subscription == 'created' && $CurrentPaymentSubscription) {
                 $CurrentPaymentSubscription->update([
                     'Status' => 'Inactive'
                 ]);
-            }else if ($subscription == 'upgrade') {
+            } elseif ($subscription == 'upgrade' && $CurrentPaymentSubscription) {
                 $CurrentPaymentSubscription->update([
                     'Status' => 'Active'
                 ]);
-            }else if ($subscription == 'pendingClear') {
+            } elseif ($subscription == 'pendingClear' && $CurrentPaymentSubscription) {
                 $CurrentPaymentSubscription->update([
                     'Status' => 'Inactive'
                 ]);
             }
 
-            $user->update([
+            $updateData = [
                 'CurrentPackageID' => $newPackage->PackageID,
                 'SubID' => $response['data'][0]['id']
-            ]);
+            ];
+            if ($user->Status !== User::STATUS_ACTIVE && !$user->isFraud()) {
+                $updateData['Status'] = User::STATUS_ACTIVE;
+                $updateData['reason'] = null;
+            }
+            $user->update($updateData);
 
-            if(isset($newPaymentSubscription) && $newPaymentSubscription != null){
+            if (!empty($newPaymentSubscription)) {
                 PaymentHistory::create([
                     'PaymentSubscriptionID' => $newPaymentSubscription->PaymentSubscriptionID,
                     'PaymentAmount' => $invoice['amount_paid'] / 100,
@@ -377,7 +416,7 @@ class StripeWebhookController extends Controller
                     'TransactionID' => $invoice['id'],
                     'created_at' => Carbon::now()
                 ]);
-            }else{
+            } elseif ($CurrentPaymentSubscription) {
                 PaymentHistory::create([
                     'PaymentSubscriptionID' => $CurrentPaymentSubscription->PaymentSubscriptionID,
                     'PaymentAmount' => $invoice['amount_paid'] / 100,
@@ -408,7 +447,13 @@ class StripeWebhookController extends Controller
 
             $invoice = $event['data']['object'];
 
-            $user = User::where('CusID', $invoice['customer'])->first();
+            $user = $this->subscriptionHelper->findUserByStripeCustomer($invoice['customer']);
+
+            if (!$user) {
+                DB::rollBack();
+                Log::info('Webhook invoice.payment_failed: user not found for customer ' . $invoice['customer']);
+                return;
+            }
 
             $PaymentSubscription = PaymentSubscription::where('UserID', $user->UserID)->where('PackageID', $user->CurrentPackageID)
                 ->whereNot('Status', 'Canceled')
