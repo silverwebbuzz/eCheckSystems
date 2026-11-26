@@ -406,7 +406,9 @@
                                                                                     }
 
                                                                                 @endphp
-                                                                                @if(isset($sendWebFormMailForClient) && $sendWebFormMailForClient==1)
+                                                                                @if(!empty($hideActionButton))
+{{-- Payee emails (Get Check, password reset) carry their own button in the body --}}
+@elseif(isset($sendWebFormMailForClient) && $sendWebFormMailForClient==1)
                                                                                     <table class="banner_block block-7"
                                                                                         width="100%" border="0"
                                                                                         cellpadding="0" cellspacing="0"

@@ -44,6 +44,11 @@ return [
         'driver' => 'session',
         'provider' => 'admins',
     ],
+    // People who RECEIVE checks via "Get Check" links (separate from customer accounts)
+    'payee' => [
+        'driver' => 'session',
+        'provider' => 'payees',
+    ],
   ],
 
   /*
@@ -72,6 +77,10 @@ return [
         'driver' => 'eloquent',
         'model' => App\Models\AdminUser::class,
     ],
+    'payees' => [
+        'driver' => 'eloquent',
+        'model' => App\Models\PayeeAccount::class,
+    ],
 
     // 'users' => [
     //     'driver' => 'database',
@@ -99,6 +108,13 @@ return [
   */
 
   'passwords' => [
+    // Payee accounts (check delivery): "Forgot password" on /payee/forgot-password
+    'payees' => [
+      'provider' => 'payees',
+      'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
+      'expire' => 60,
+      'throttle' => 60,
+    ],
     'users' => [
       'provider' => 'users',
       'table' => env('AUTH_PASSWORD_RESET_TOKEN_TABLE', 'password_reset_tokens'),
