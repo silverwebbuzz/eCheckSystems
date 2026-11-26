@@ -217,26 +217,71 @@ class Helpers
     }
   }
 
-  public static function isSubscribed(User $user)
+  public static function activeSubscription(User $user)
   {
-    if ($user->CurrentPackageID == -1) {
-      $package = Package::whereRaw('LOWER(Name) = ?', ['trial'])->first();
-    } else {
-      $package = Package::find($user->CurrentPackageID);
-    }
-
-    $subscription = PaymentSubscription::where('UserID', $user->UserID)
+    return PaymentSubscription::where('UserID', $user->UserID)
       ->where('PackageID', $user->CurrentPackageID)
       ->where('Status', 'Active')
-      ->orderBy('PaymentSubscriptionID', 'desc')->first();
+      ->orderBy('PaymentSubscriptionID', 'desc')
+      ->first();
+  }
 
-    if (!$subscription) {
+  public static function packageForUser(User $user)
+  {
+    if ($user->CurrentPackageID == -1) {
+      return Package::whereRaw('LOWER(Name) = ?', ['trial'])->first();
+    }
+
+    return Package::find($user->CurrentPackageID);
+  }
+
+  public static function isSubscribed(User $user)
+  {
+    $package = self::packageForUser($user);
+    $subscription = self::activeSubscription($user);
+
+    if (!$subscription || !$package) {
       return false;
     }
     if ($package->CheckLimitPerMonth != 0 && $subscription->RemainingChecks < 1) {
       return false;
     }
     return true;
+  }
+
+  /**
+   * True when the user has an active paid/trial package but has used all checks for the period.
+   */
+  public static function hasExhaustedCheckAllowance(User $user): bool
+  {
+    $package = self::packageForUser($user);
+    $subscription = self::activeSubscription($user);
+
+    if (!$subscription || !$package) {
+      return false;
+    }
+
+    return $package->CheckLimitPerMonth != 0 && $subscription->RemainingChecks < 1;
+  }
+
+  public static function checkAllowanceExhaustedMessage(User $user, bool $withUpgradeModalLink = false): string
+  {
+    $subscription = self::activeSubscription($user);
+    $resetDate = null;
+
+    if ($subscription && !empty($subscription->NextRenewalDate)) {
+      $resetDate = User::user_timezone($subscription->NextRenewalDate, 'M d, Y');
+    }
+
+    $upgradePhrase = $withUpgradeModalLink
+      ? '<a href="javascript:void(0);" class="alert-link text-decoration-underline" data-bs-toggle="modal" data-bs-target="#onboardingHorizontalSlideModal">upgrade your plan</a>'
+      : 'upgrade your plan';
+
+    if ($resetDate) {
+      return "You've used all of your checks for this billing period. Your check allowance resets on <strong>{$resetDate}</strong>. You can wait until then, or {$upgradePhrase} for more checks.";
+    }
+
+    return "You've used all of your checks for this billing period. Please wait until your next renewal date, or {$upgradePhrase} for more checks.";
   }
 
   public static function getWebFormServiceFeeAndTotal($EntityID, $amount)

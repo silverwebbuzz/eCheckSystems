@@ -27,7 +27,7 @@
         @endif
          @if (session('info'))
             <div class="alert alert-danger">
-                {{ session('info') }}
+                {!! session('info') !!}
             </div>
         @endif
         <div id="alert-message">
@@ -78,6 +78,7 @@
             </table>
         </div>
     </div>
+    @include('user.partials.upgrade_plan_modal')
 @endsection
 @section('page-script')
     <script>
