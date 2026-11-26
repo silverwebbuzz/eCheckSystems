@@ -799,7 +799,9 @@ class CheckController extends Controller
         // Generate PDF from a view
         $pdf = PDF::loadView('user.check_formate.index', compact('data', 'send_check'))->setPaper('letter', 'portrait')
             // ->setPaper([0, 0, 1000, 1200])
-            ->setOptions(['dpi' => 150])
+            // true = merge with config/dompdf.php. Without it laravel-dompdf v3 replaces ALL options,
+            // dropping 'chroot', so local images loaded via public_path() (signature, cut_here) are blocked.
+            ->setOptions(['dpi' => 150], true)
             ->set_option('isHtml5ParserEnabled', true)
             ->set_option('isRemoteEnabled', true);
 
