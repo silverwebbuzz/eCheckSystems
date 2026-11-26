@@ -7,6 +7,7 @@ use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Company;
+use App\Helpers\Helpers;
 use Carbon\Carbon;
 
 class CompanyController extends Controller
@@ -100,7 +101,7 @@ class CompanyController extends Controller
             'state' => 'required',
             'zip' => 'required',
             'bank_name' => 'required',
-            'routing_number' => 'required|digits:9',
+            'routing_number' => Helpers::routingNumberRules(),
             'account_number' => 'required|numeric',
             'status' => 'required',
         ]);
@@ -153,7 +154,7 @@ class CompanyController extends Controller
         $company->Email = $request->email;
         $company->Logo = $logoPath; // Save the path of the logo
         $company->BankName = $request->bank_name;
-        $company->RoutingNumber = $request->routing_number;
+        $company->RoutingNumber = Helpers::normalizeRoutingNumber($request->routing_number);
         $company->AccountNumber = $request->account_number;
         $company->PageURL = $request->page_url;
         $company->PageDescription = $request->page_description;
@@ -185,7 +186,7 @@ class CompanyController extends Controller
             'state' => 'required',
             'zip' => 'required',
             'bank_name' => 'required',
-            'routing_number' => 'required|digits:9',
+            'routing_number' => Helpers::routingNumberRules(),
             'account_number' => 'required|numeric',
             'status' => 'required',
         ]);
@@ -228,7 +229,7 @@ class CompanyController extends Controller
         $company->Email = $request->email;
         $company->Logo = $logoPath; // Save the path of the logo
         $company->BankName = $request->bank_name;
-        $company->RoutingNumber = $request->routing_number;
+        $company->RoutingNumber = Helpers::normalizeRoutingNumber($request->routing_number);
         $company->AccountNumber = $request->account_number;
         $company->PageURL = $request->page_url;
         $company->PageDescription = $request->page_description;
@@ -259,7 +260,7 @@ class CompanyController extends Controller
             'state' => 'required',
             'zip' => 'required',
             'bank_name' => 'required',
-            'routing_number' => 'required',
+            'routing_number' => Helpers::routingNumberRules(),
             'account_number' => 'required',
         ]);
 
@@ -295,7 +296,7 @@ class CompanyController extends Controller
         $company->Zip = $request->zip;
         $company->Email = $request->email;
         $company->BankName = $request->bank_name;
-        $company->RoutingNumber = $request->routing_number;
+        $company->RoutingNumber = Helpers::normalizeRoutingNumber($request->routing_number);
         $company->AccountNumber = $request->account_number;
         $company->Status = 'Active';
 

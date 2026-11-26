@@ -541,7 +541,7 @@
 
                     <div class="routing_num input_row">
                         <label for="routing_number">Routing Number</label>
-                        <input type="number" id="routing_number" name="routing_number"
+                        <input type="text" inputmode="numeric" id="routing_number" name="routing_number"
                             value="{{ old('routing_number') }}" tabindex="12" class="no-spinner" maxlength="9"
                             oninput="this.value = this.value.replace(/\D/g, '').slice(0,9);" />
                         @error('routing_number')
