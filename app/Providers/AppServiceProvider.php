@@ -25,18 +25,6 @@ class AppServiceProvider extends ServiceProvider
   {
 
     // URL::forceScheme('https');
-    DB::listen(function ($query) {
-    if (stripos($query->sql, 'update `qbo_companies`') !== false) {
-        Log::info('QBO Company Update SQL', [
-            'sql' => $query->sql,
-            'bindings' => $query->bindings,
-            'trace' => collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS))
-                ->map(fn($t) => ($t['file'] ?? '').':'.($t['line'] ?? ''))
-                ->take(10) // just the top 10 frames
-        ]);
-    }
-});
-
     Vite::useStyleTagAttributes(function (?string $src, string $url, ?array $chunk, ?array $manifest) {
       if ($src !== null) {
         return [
